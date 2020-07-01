@@ -1,0 +1,247 @@
+#!/bin/bash
+
+set -euo pipefail
+# set -x
+
+MAINREPO=$(git rev-parse --show-toplevel)
+MAINREPOGIT=$(git rev-parse --git-dir)
+function git-main(){
+	git --git-dir="$MAINREPOGIT" "$@"
+}
+function git-sub(){
+	SHARDPATH="$1"
+	shift
+	git --git-dir="$MAINREPOGIT/shards/$SHARDPATH" --work-tree="$MAINREPO/$SHARDPATH" "$@"
+}
+
+function get-shards-path(){
+	while read -r SHARD; do
+		echo "$SHARD" | sed -E 's|^shards\.(.*)\.upstream=.*|\1|'
+	done <<< "$(git-main config --local -l | grep -E '^shards\..*\.upstream' || true)"
+}
+
+function get-shard-exists(){
+	if git-main config --local "shards.$SHARDPATH.upstream"; then
+		echo 1
+	else
+		echo 0
+	fi
+}
+function get-oldest-commit(){
+	# TODO: find a cleaner solution for returning the oldest commit
+	if [ -z "$1" ] || ( [ -n "$2" ] && [ -n "$(git-main log "$1..$2")" ] ); then
+		echo "$1"
+	else
+		echo "$2"
+	fi
+}
+function get-latest-commit(){
+	# TODO: find a cleaner solution for returning the latest commit
+	if [ -z "$1" ] || ( [ -n "$2" ] && [ -n "$(git-main log "$1..$2")" ] ); then
+		echo "$2"
+	else
+		echo "$1"
+	fi
+}
+
+function get-shard-commit(){
+	SHARDPATH="$1"
+	shift
+
+	LAST_INSPECTED=$(git-main config --local "shards.$SHARDPATH.commit")
+	LAST_COMMITED=$(git-sub "$SHARDPATH" show HEAD -q --format='%b' 2>/dev/null | grep -oE "^SHARD-MAINREF: \w+$" | cut -d ' ' -f 2 || true)
+
+	LATEST=$(get-latest-commit "$LAST_INSPECTED" "$LAST_COMMITED")
+	if [ -z "$LATEST" ]; then
+		git-main rev-parse HEAD^
+	else
+		echo "$LATEST"
+	fi
+}
+
+function migrate-commits(){
+
+	COMMIT_FROM=""
+	COMMIT_TO="HEAD"
+	COMMIT_ARGS=()
+
+	while (( $# > 0 )); do
+		case "$1" in
+			-h|-\?|--help)
+				echo "Usage: $(basename "$0") commit [options]"
+				exit 1
+				;;
+			--from)
+				shift
+				COMMIT_FROM="$1"
+				;;
+			--to)
+				shift
+				COMMIT_TO="$1"
+				;;
+			*)
+				COMMIT_ARGS+=("$1")
+				;;
+		esac
+
+		shift
+	done
+
+	if [ -z "$COMMIT_FROM" ]; then
+		# Find oldest commit
+		COMMIT_FROM="HEAD"
+
+		while read -r SHARDPATH; do
+			COMMIT=$(get-shard-commit "$SHARDPATH")
+
+			if [ -z "$COMMIT_FROM" ] || [[ $(get-oldest-commit "$COMMIT_FROM" "$COMMIT") == "$COMMIT" ]]; then
+				COMMIT_FROM=$COMMIT
+			fi
+		done <<< "$(get-shards-path)"
+	fi
+
+	# List commits to copy to shard repositories
+	COMMITS_TO_INSPECT=$(git-main log --format="%H" "$COMMIT_FROM..$COMMIT_TO" | tac)
+	if [ -z "$COMMITS_TO_INSPECT" ]; then
+		echo "Not commits to replicate on shards"
+		exit 0
+	fi
+
+	# Stash changes if any
+	if [ -n "$(git-main status --porcelain)" ]; then
+		git-main stash push -u -m "Pre git-shard commit cleaning"
+		trap "git-main stash pop -q" EXIT
+	fi
+
+	MAINREPO_BRANCH=$(git-main branch --show-current)
+
+
+	# Checkout and replicate each commit in each shard
+	for HASH in $COMMITS_TO_INSPECT; do
+		echo "=========================================="
+		echo "Copying commit $(git-main show -s --format='%s (%h)' "$HASH") to shards"
+		echo "=========================================="
+		git-main checkout "$HASH" 2>/dev/null
+
+		COMMITINFO=$(git-main show "$HASH" -s --format='%an <%ae>%n%at%n%B')
+		COMMITINFO_LEN=$(wc -l <<< "$COMMITINFO")
+
+		COMMIT_AUTH=$(sed '1q;d' <<< "$COMMITINFO")
+		COMMIT_DATE=$(sed '2q;d' <<< "$COMMITINFO")
+		COMMIT_MSG=$(tail -n$(( COMMITINFO_LEN - 2 )) <<< "$COMMITINFO")
+		COMMIT_MSG=$(printf "%s\n\nSHARD-MAINREF: %s" "$COMMIT_MSG" "$HASH")
+
+		while read -r SHARD_PATH; do
+			echo "=> $SHARD_PATH"
+			if [[ "$(get-latest-commit "$(get-shard-commit "$SHARD_PATH")" "$HASH")" == "$HASH" ]]; then
+
+				if [ -n "$(git-sub "$SHARD_PATH" status --porcelain)" ]; then
+					git-sub "$SHARD_PATH" add .
+
+					git-sub "$SHARD_PATH" commit \
+						--author="$COMMIT_AUTH" --date="$COMMIT_DATE" \
+						--message="$COMMIT_MSG" \
+						"${COMMIT_ARGS[@]}"
+				else
+					echo "  Not affected"
+				fi
+			else
+				echo "  Commit already copied"
+			fi
+
+
+			git-main config --local "shards.$SHARD_PATH.commit" "$HASH"
+		done <<< "$(get-shards-path)"
+	done
+
+	if [ -n "$MAINREPO_BRANCH" ]; then
+		git-main checkout "$MAINREPO_BRANCH"
+	fi
+}
+
+
+
+
+
+
+
+
+
+SUBCOMMAND="$1"
+shift
+case "$SUBCOMMAND" in
+	init)
+		# Add a new shard
+		SHARDPATH="$1"
+		UPSTREAM="${2:-}"
+
+		# Assertions
+		[ -d "$SHARDPATH" ] || (echo "$SHARDPATH does not exist / is not a directory" && exit 1)
+		(( $(get-shard-exists "$SHARDPATH") == 0 )) || (echo "A shard already exists for path $SHARDPATH" && exit 1)
+
+		SHARDPATH=$(realpath --relative-to="$MAINREPO" "$SHARDPATH")
+		SHARDSTORPATH="$MAINREPOGIT/shards/$SHARDPATH"
+
+		# Clone/create shard repository
+		mkdir -p "$SHARDSTORPATH"
+		if [[ "$UPSTREAM" != "" ]]; then
+			git clone --bare "$UPSTREAM" "$SHARDSTORPATH"
+
+			LAST_MAIN_COMMIT=$(git-sub "$SHARDPATH" show HEAD -q --format='%b' | grep -oE "^SHARD-MAINREF: \w+$" | cut -d ' ' -f 2)
+			git-main config --local "shards.$SHARDPATH.commit" "$LAST_MAIN_COMMIT"
+		else
+			git init --bare "$SHARDSTORPATH"
+			git-main config --local "shards.$SHARDPATH.commit" ""
+		fi
+
+		# Add shard to git config
+		git-main config --local "shards.$SHARDPATH.upstream" "$UPSTREAM"
+
+		echo "Added shard $SHARDPATH"
+		;;
+
+	list)
+		while read -r SHARD_PATH; do
+			echo "$SHARD_PATH=>$(git-main config --local --get "shards.$SHARD_PATH.upstream")"
+		done <<< "$(get-shards-path)"
+		;;
+
+	remove)
+		SHARDPATH="$1"
+
+		(( $(get-shard-exists "$SHARDPATH") == 1 )) || (echo "There is no shard for path $SHARDPATH" && exit 1)
+
+		git-main config --local --unset "shards.$SHARDPATH.upstream"
+		rm -rf "$MAINREPOGIT/shards/$SHARDPATH"
+		;;
+
+	commit)
+		migrate-commits "$@"
+		;;
+
+	exec)
+		SHARDPATH="$1"
+		shift
+
+		if [[ "$SHARDPATH" == "*" ]]; then
+			# Exec for each shard
+			while read -r SHARDPATH; do
+				echo "=> $SHARDPATH"
+				git-sub "$SHARDPATH" "$@" || true
+			done <<< "$(get-shards-path)"
+		else
+			# Exec for a specific shard
+			if ! git-main config --local "shards.$SHARDPATH.upstream" >/dev/null; then
+				echo "No shard for $SHARDPATH"
+				exit 1
+			fi
+			git-sub "$SHARDPATH" "$@"
+		fi
+		;;
+
+	*)
+		echo "Unknown command: $SUBCOMMAND"
+		exit 1
+
+esac
+
