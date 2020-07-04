@@ -29,6 +29,10 @@ git shard exec lib/official log --format=oneline
 
 # Execute git commands inside all shard repositories
 git shard exec "*" push origin master
+
+# Limit the shard "secrets" to only a set of files and directories. Paths are relative to the shard path.
+git shard files secrets add "*.md"
+git shard files secrets add public-1/
 ```
 
 

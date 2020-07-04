@@ -39,7 +39,7 @@ function get-shard-exists(){
 }
 function get-oldest-commit(){
 	# TODO: find a cleaner solution for returning the oldest commit
-	if [ -z "$1" ] || ( [ -n "$2" ] && [ -n "$(git-main log "$1..$2")" ] ); then
+	if [ -z "$1" ] || { [ -n "$2" ] && [ -n "$(git-main log "$1..$2")" ] ; }; then
 		echo "$1"
 	else
 		echo "$2"
@@ -47,7 +47,7 @@ function get-oldest-commit(){
 }
 function get-latest-commit(){
 	# TODO: find a cleaner solution for returning the latest commit
-	if [ -z "$1" ] || ( [ -n "$2" ] && [ -n "$(git-main log "$1..$2")" ] ); then
+	if [ -z "$1" ] || { [ -n "$2" ] && [ -n "$(git-main log "$1..$2")" ] ; }; then
 		echo "$2"
 	else
 		echo "$1"
@@ -196,8 +196,23 @@ function migrate-commits(){
 
 
 
-SUBCOMMAND="$1"
+SUBCOMMAND="${1:-help}"
+case "$SUBCOMMAND" in -h|--help|help)
+	echo "Usage: git shard subcommand [options]"
+	echo
+	echo "Available subcommand:"
+	echo " init   Register a directory as a shard and initialize/clone its associated git repository"
+	echo " list   List all registered shards"
+	echo " remove Un-register shards"
+	echo " files  Limit an existing shard to a set of files and directories"
+	echo " commit Copy commits from the main repository to each shard"
+	echo " exec   Executes a git command inside a shard (do not repeat the 'git' command)"
+	echo " help   Display this message"
+	exit 0
+esac
+
 shift
+
 case "$SUBCOMMAND" in
 	init)
 		# Add a new shard
@@ -235,7 +250,45 @@ case "$SUBCOMMAND" in
 		done <<< "$(get-shards-path)"
 		;;
 
+	remove)
+		case "${1:-help}" in -h|--help|help)
+			echo "Usage: git shard remove shard_path [more_shard_path...]"
+			echo
+			echo "Un-register one or more shards and remove its associated git repository from .git/shards/"
+			echo
+			echo "Arguments:"
+			echo " shard_path       Path of the shard to remove"
+			echo " more_shard_path  Same as shard_path"
+			exit 0
+		esac
+
+		for SHARDSPEC in "$@"; do
+			while read -r SHARDPATH; do
+				(( $(get-shard-exists "$SHARDPATH") == 1 )) || (echo "There is no shard for path $SHARDPATH" && exit 1)
+
+				while read -r CFG; do
+					git-main config --local --unset "$CFG"
+				done <<< "$(git-main config --local -l | grep -oE "^shards.$SHARDPATH.[^=]+")"
+
+				rm -rf "$MAINREPOGIT/shards/$SHARDPATH"
+
+			done <<< "$(expand-shard-match "$SHARDSPEC")"
+		done
+		;;
+
 	files)
+		case "${1:-help}" in -h|--help|help)
+			echo "Usage: git shard files shard_path command [path_spec]"
+			echo
+			echo "Limits a shard to only track a list of files and directories."
+			echo "Once at least one path is defined, the shard repository will ignore any other file."
+			echo
+			echo "Arguments:"
+			echo " shard_path  Path of the shard"
+			echo " command     either add, remove, get, set"
+			echo " path_spec   Path to a file or directory. Can contain wildcards for matching multiple files"
+			exit 0
+		esac
 		SHARDPATH="$1"
 		COMMAND="$2"
 		VALUE="${3:-}"
@@ -271,20 +324,31 @@ case "$SUBCOMMAND" in
 		done <<< "$(expand-shard-match "$SHARDPATH")"
 		;;
 
-	remove)
-		SHARDPATH="$1"
-
-		(( $(get-shard-exists "$SHARDPATH") == 1 )) || (echo "There is no shard for path $SHARDPATH" && exit 1)
-
-		git-main config --local --unset "shards.$SHARDPATH.upstream"
-		rm -rf "$MAINREPOGIT/shards/$SHARDPATH"
-		;;
-
 	commit)
+		case "${1:-help}" in -h|--help|help)
+			echo "Usage: git shard commit [options]"
+			echo
+			echo "Copy commits from the main repository to each shard"
+			echo
+			echo "Arguments:"
+			echo " options  Forwarded to the 'git commit' command"
+			exit 0
+		esac
 		migrate-commits "$@"
 		;;
 
 	exec)
+		case "${1:-help}" in -h|--help|help)
+			echo "Usage: git shard exec shard_path [git_args]"
+			echo
+			echo "Executes a git command inside a shard (do not repeat the 'git' command)"
+			echo
+			echo "Arguments:"
+			echo " shard_path  Path of the shard. '*' for all shards"
+			echo " git_args    Args passed to the git command to execute"
+			exit 0
+		esac
+
 		SHARDPATH="$1"
 		shift
 
