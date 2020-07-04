@@ -7,7 +7,7 @@ set -euo pipefail
 
 MAINREPO=$(git rev-parse --show-toplevel)
 MAINREPOGIT=$(git rev-parse --git-dir)
-if [[ "$OS" == "Windows_NT" ]]; then
+if [[ "${OS:-}" == "Windows_NT" ]]; then
 	MAINREPO="$(cygpath -u "$MAINREPO")"
 	MAINREPOGIT="$(cygpath -u "$MAINREPOGIT")"
 fi
