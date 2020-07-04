@@ -4,8 +4,14 @@
 set -euo pipefail
 # set -x
 
+
 MAINREPO=$(git rev-parse --show-toplevel)
 MAINREPOGIT=$(git rev-parse --git-dir)
+if [[ "$OS" == "Windows_NT" ]]; then
+	MAINREPO="$(cygpath -u "$MAINREPO")"
+	MAINREPOGIT="$(cygpath -u "$MAINREPOGIT")"
+fi
+
 function git-main(){
 	git --git-dir="$MAINREPOGIT" "$@"
 }
@@ -165,7 +171,6 @@ function migrate-commits(){
 					git-sub "$shard_path" add .
 				fi
 
-				# if [ -n "$(git-sub "$shard_path" status --porcelain)" ]; then
 				if [ -n "$(git-sub "$shard_path" diff --staged --name-only)" ]; then
 					git-sub "$shard_path" commit \
 						--author="$commit_auth" --date="$commit_date" \
