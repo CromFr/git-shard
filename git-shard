@@ -220,6 +220,17 @@ shift
 
 case "$SUBCOMMAND" in
 	init)
+		case "${1:-help}" in -h|--help|help)
+			echo "Usage: git shard init shard_path [upstream_url]"
+			echo
+			echo "Register a directory as a shard and initialize/clone its associated git repository."
+			echo "The shard is versioned using a bare repository stored in .git/shards/"
+			echo
+			echo "Arguments:"
+			echo " shard_path    Path of the shard"
+			echo " upstream_url  Git clone URL if the shard repository has already been published"
+			exit 0
+		esac
 		# Add a new shard
 		SHARDPATH="$1"
 		UPSTREAM="${2:-}"
