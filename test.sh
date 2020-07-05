@@ -74,3 +74,16 @@ git add .
 git commit --no-gpg-sign -m "Added restricted project"
 git shard commit --no-gpg-sign
 (( $(git shard exec RestrictedProject show --pretty="" --name-only HEAD | wc -l) == 4))
+
+
+echo "===================================================== RootShard"
+
+git shard init .
+git shard files . add README.md
+git shard commit --no-gpg-sign
+(( $(git shard exec . show --pretty="" --name-only HEAD | wc -l) == 1))
+
+git shard remove .
+
+# check that the removal didn't do anything nasty
+(( $(git shard exec RestrictedProject show --pretty="" --name-only HEAD | wc -l) == 4))

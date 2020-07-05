@@ -11,6 +11,14 @@ if [[ "${OS:-}" == "Windows_NT" ]]; then
 	MAINREPO="$(cygpath -u "$MAINREPO")"
 	MAINREPOGIT="$(cygpath -u "$MAINREPOGIT")"
 fi
+function get-shard-repo-path(){
+	local shard_path="$1"
+	if [[ "$shard_path" == "." ]]; then
+		echo "$MAINREPOGIT/shards/__root"
+	else
+		echo "$MAINREPOGIT/shards/$shard_path"
+	fi
+}
 
 function git-main(){
 	git --git-dir="$MAINREPOGIT" "$@"
@@ -18,7 +26,7 @@ function git-main(){
 function git-sub(){
 	local shard_path="$1"
 	shift
-	git --git-dir="$MAINREPOGIT/shards/$shard_path" --work-tree="$MAINREPO/$shard_path" "$@"
+	git --git-dir="$(get-shard-repo-path "$shard_path")" --work-tree="$MAINREPO/$shard_path" "$@"
 }
 
 function get-shards-path(){
@@ -240,7 +248,7 @@ case "$SUBCOMMAND" in
 		(( $(get-shard-exists "$SHARDPATH") == 0 )) || (echo "A shard already exists for path $SHARDPATH" && exit 1)
 
 		SHARDPATH=$(realpath --relative-to="$MAINREPO" "$SHARDPATH")
-		SHARDSTORPATH="$MAINREPOGIT/shards/$SHARDPATH"
+		SHARDSTORPATH="$(get-shard-repo-path "$SHARDPATH")"
 
 		# Clone/create shard repository
 		mkdir -p "$SHARDSTORPATH"
@@ -282,11 +290,8 @@ case "$SUBCOMMAND" in
 			while read -r SHARDPATH; do
 				(( $(get-shard-exists "$SHARDPATH") == 1 )) || (echo "There is no shard for path $SHARDPATH" && exit 1)
 
-				while read -r CFG; do
-					git-main config --local --unset "$CFG"
-				done <<< "$(git-main config --local -l | grep -oE "^shards.$SHARDPATH.[^=]+")"
-
-				rm -rf "$MAINREPOGIT/shards/$SHARDPATH"
+				git config --local --remove-section "shards.$SHARDPATH"
+				rm -rf "$(get-shard-repo-path "$SHARDPATH")"
 
 			done <<< "$(expand-shard-match "$SHARDSPEC")"
 		done
