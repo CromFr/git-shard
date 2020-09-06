@@ -346,7 +346,7 @@ case "$SUBCOMMAND" in
 		;;
 
 	commit)
-		case "${1:-help}" in -h|--help|help)
+		case "${1:-}" in -h|--help|help)
 			echo "Usage: git shard commit [options]"
 			echo
 			echo "Copy commits from the main repository to each shard"
