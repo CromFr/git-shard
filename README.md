@@ -10,7 +10,7 @@ Download [git-shard](git-shard) and make sure the script is both in your `PATH` 
 
 ```bash
 # Register lib/official as being a shard published on github
-git shard init lib/official git@github.com:Drizzt/official-lib.git
+git shard init lib/official --upstream git@github.com:Drizzt/official-lib.git
 
 # Register lib/experimental as being a shard that is not currently published
 git shard init lib/experimental
