@@ -166,13 +166,23 @@ function migrate-commits(){
 		local shard_path
 		while read -r shard_path; do
 			echo "=> $shard_path"
-			if [[ "$(get-latest-commit "$(get-shard-commit "$shard_path")" "$HASH")" == "$HASH" ]]; then
+			if [ ! -d "$shard_path" ]; then
+				echo "  Shard path is not a directory / does not exist"
+				continue
+			fi
 
+			local shard_tracking_branch=$(git-main config --local "shards.$shard_path.branch")
+
+			if [[ "$shard_tracking_branch" != "$mainrepo_branch" ]]; then
+				echo "  Not affected (the shard tracks $shard_tracking_branch, not $mainrepo_branch)"
+				continue
+			fi
+
+			if [[ "$(get-latest-commit "$(get-shard-commit "$shard_path")" "$HASH")" == "$HASH" ]]; then
 				local files=$(git-main config --local "shards.$shard_path.files" || true)
 				if [ -n "$files" ]; then
 					local file
 					while read -r file; do
-						echo "ADDING FILE '$file'"
 						git-sub "$shard_path" add "$file"
 					done <<< "$(tr ":" "\n" <<< "$files")"
 				else
@@ -185,7 +195,7 @@ function migrate-commits(){
 						--message="$commit_msg" \
 						"${commit_args[@]}"
 				else
-					echo "  Not affected"
+					echo "  No changes found"
 				fi
 			else
 				echo "  Commit already copied"
@@ -228,20 +238,46 @@ shift
 
 case "$SUBCOMMAND" in
 	init)
-		case "${1:-help}" in -h|--help|help)
-			echo "Usage: git shard init shard_path [upstream_url]"
-			echo
-			echo "Register a directory as a shard and initialize/clone its associated git repository."
-			echo "The shard is versioned using a bare repository stored in .git/shards/"
-			echo
-			echo "Arguments:"
-			echo " shard_path    Path of the shard"
-			echo " upstream_url  Git clone URL if the shard repository has already been published"
-			exit 0
-		esac
-		# Add a new shard
-		SHARDPATH="$1"
-		UPSTREAM="${2:-}"
+		BRANCH=$(git-main branch --show-current)
+		UPSTREAM=""
+		SHARDPATH=""
+
+		while (( $# > 0 )); do
+			case "$1" in
+				-h|--help)
+					echo "Usage: git shard init [options] shard_path"
+					echo
+					echo "Register a directory as a shard and initialize/clone its associated git repository."
+					echo "The shard is versioned using a bare repository stored in .git/shards/"
+					echo
+					echo "Arguments:"
+					echo " shard_path       Path of the directory to track for creating the shard from"
+					echo
+					echo "Options:"
+					echo " --upstream URI   Git clone URI if the shard repository is already versioned somewhere"
+					echo " --branch BRANCH  Branch of the main repository that will be bound to the master branch of the shard. Defaults to the current branch of the main repository."
+					exit 0
+					;;
+				--origin)
+					shift
+					UPSTREAM="$1"
+					;;
+				--branch)
+					shift
+					BRANCH="$1"
+					;;
+				*)
+					if [ -z "$SHARDPATH" ]; then
+						SHARDPATH="$1"
+					else
+						echo "Too many shard_path arguments"
+						exit 1
+					fi
+					;;
+			esac
+
+			shift
+		done
 
 		# Assertions
 		[ -d "$SHARDPATH" ] || (echo "$SHARDPATH does not exist / is not a directory" && exit 1)
@@ -264,13 +300,20 @@ case "$SUBCOMMAND" in
 
 		# Add shard to git config
 		git-main config --local "shards.$SHARDPATH.upstream" "$UPSTREAM"
+		git-main config --local "shards.$SHARDPATH.branch" "$BRANCH"
 
 		echo "Added shard $SHARDPATH"
+
+		CURR_BRANCH="$(git-main branch --show-current)"
+		if [[ "$CURR_BRANCH" != "$BRANCH" ]]; then
+			echo "Note: you are not currently on the tracked branch '$CURR_BRANCH' for this shard."
+			echo "Execute \`git checkout '$BRANCH'\` to switch to the associated branch."
+		fi
 		;;
 
 	list)
 		while read -r SHARD_PATH; do
-			echo "$SHARD_PATH=>$(git-main config --local --get "shards.$SHARD_PATH.upstream")"
+			echo "$SHARD_PATH=>$(git-main config --local --get "shards.$SHARD_PATH.upstream")@$(git-main config --local --get "shards.$SHARD_PATH.branch")"
 		done <<< "$(get-shards-path)"
 		;;
 
@@ -290,8 +333,8 @@ case "$SUBCOMMAND" in
 			while read -r SHARDPATH; do
 				(( $(get-shard-exists "$SHARDPATH") == 1 )) || (echo "There is no shard for path $SHARDPATH" && exit 1)
 
-				git config --local --remove-section "shards.$SHARDPATH"
 				rm -rf "$(get-shard-repo-path "$SHARDPATH")"
+				git config --local --remove-section "shards.$SHARDPATH"
 
 			done <<< "$(expand-shard-match "$SHARDSPEC")"
 		done

@@ -87,3 +87,30 @@ git shard remove .
 
 # check that the removal didn't do anything nasty
 (( $(git shard exec RestrictedProject show --pretty="" --name-only HEAD | wc -l) == 4))
+
+
+
+echo "===================================================== BranchShard"
+
+git branch branch-repo
+
+mkdir BranchRepo
+echo "This shard tracks a specific branch of the main repo" > BranchRepo/README.md
+git shard init --branch branch-repo BranchRepo/
+
+git shard commit --no-gpg-sign
+git shard exec BranchRepo show HEAD && exit 1 # No commits
+
+git checkout branch-repo
+git shard commit --no-gpg-sign
+git shard exec BranchRepo show HEAD && exit 1 # No commits
+
+git add .
+git commit --no-gpg-sign -m "Added branched shard"
+
+git checkout branch-repo
+git shard commit --no-gpg-sign
+(( $(git shard exec BranchRepo show --pretty="" --name-only HEAD | wc -l) == 1))
+
+(( $(git shard exec lib/public-lib show --pretty="" --name-only HEAD | wc -l) == 1))
+(( $(git shard exec RestrictedProject show --pretty="" --name-only HEAD | wc -l) == 4))
