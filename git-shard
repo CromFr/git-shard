@@ -32,7 +32,7 @@ function git-sub(){
 function get-shards-path(){
 	while read -r SHARD; do
 		echo "$SHARD" | sed -E 's|^shards\.(.*)\.upstream=.*|\1|'
-	done <<< "$(git-main config --local -l | grep -E '^shards\..*\.upstream' || true)"
+	done < <(git-main config --local -l | grep -E '^shards\..*\.upstream' || true)
 }
 
 function get-shard-exists(){
@@ -129,7 +129,7 @@ function migrate-commits(){
 			if [ -z "$commit_from" ] || [[ $(get-oldest-commit "$commit_from" "$COMMIT") == "$COMMIT" ]]; then
 				local commit_from=$COMMIT
 			fi
-		done <<< "$(get-shards-path)"
+		done < <(get-shards-path)
 	fi
 
 	# List commits to copy to shard repositories
@@ -184,7 +184,7 @@ function migrate-commits(){
 					local file
 					while read -r file; do
 						git-sub "$shard_path" add "$file"
-					done <<< "$(tr ":" "\n" <<< "$files")"
+					done < <(tr ":" "\n" <<< "$files")
 				else
 					git-sub "$shard_path" add .
 				fi
@@ -203,7 +203,7 @@ function migrate-commits(){
 
 
 			git-main config --local "shards.$shard_path.commit" "$HASH"
-		done <<< "$(get-shards-path)"
+		done < <(get-shards-path)
 	done
 
 	if [ -n "$mainrepo_branch" ]; then
@@ -314,7 +314,7 @@ case "$SUBCOMMAND" in
 	list)
 		while read -r SHARD_PATH; do
 			echo "$SHARD_PATH=>$(git-main config --local --get "shards.$SHARD_PATH.upstream")@$(git-main config --local --get "shards.$SHARD_PATH.branch")"
-		done <<< "$(get-shards-path)"
+		done < <(get-shards-path)
 		;;
 
 	remove)
@@ -336,7 +336,7 @@ case "$SUBCOMMAND" in
 				rm -rf "$(get-shard-repo-path "$SHARDPATH")"
 				git config --local --remove-section "shards.$SHARDPATH"
 
-			done <<< "$(expand-shard-match "$SHARDSPEC")"
+			done < <(expand-shard-match "$SHARDSPEC")
 		done
 		;;
 
@@ -385,7 +385,7 @@ case "$SUBCOMMAND" in
 					;;
 			esac
 
-		done <<< "$(expand-shard-match "$SHARDPATH")"
+		done < <(expand-shard-match "$SHARDPATH")
 		;;
 
 	commit)
@@ -421,7 +421,7 @@ case "$SUBCOMMAND" in
 			while read -r SHARDPATH; do
 				echo "=> $SHARDPATH"
 				git-sub "$SHARDPATH" "$@" || true
-			done <<< "$(get-shards-path)"
+			done < <(git-shards-path)
 		else
 			# Exec for a specific shard
 			if (( ! $(get-shard-exists "$SHARDPATH") )); then
