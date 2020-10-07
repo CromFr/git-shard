@@ -1,6 +1,11 @@
 #!/bin/bash
 
 set -exuo pipefail
+export PATH="$PWD:$PATH"
+
+rm -rf "$(dirname "$0")/test/"
+mkdir "$(dirname "$0")/test"
+cd "$(dirname "$0")/test"
 
 git init
 
@@ -114,3 +119,6 @@ git shard commit --no-gpg-sign
 
 (( $(git shard exec lib/public-lib show --pretty="" --name-only HEAD | wc -l) == 1))
 (( $(git shard exec RestrictedProject show --pretty="" --name-only HEAD | wc -l) == 4))
+
+echo "SUCCESS ! :)"
+
