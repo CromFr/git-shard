@@ -145,7 +145,7 @@ function migrate-commits(){
 		trap "git-main stash pop -q" EXIT
 	fi
 
-	local mainrepo_branch=$(git-main branch --show-current)
+	local mainrepo_branch=$(git-main rev-parse --abbrev-ref HEAD)
 
 
 	# Checkout and replicate each commit in each shard
@@ -238,7 +238,7 @@ shift
 
 case "$SUBCOMMAND" in
 	init)
-		BRANCH=$(git-main branch --show-current)
+		BRANCH=$(git-main rev-parse --abbrev-ref HEAD)
 		UPSTREAM=""
 		SHARDPATH=""
 
@@ -304,7 +304,7 @@ case "$SUBCOMMAND" in
 
 		echo "Added shard $SHARDPATH"
 
-		CURR_BRANCH="$(git-main branch --show-current)"
+		CURR_BRANCH="$(git-main rev-parse --abbrev-ref HEAD)"
 		if [[ "$CURR_BRANCH" != "$BRANCH" ]]; then
 			echo "Note: you are not currently on the tracked branch '$CURR_BRANCH' for this shard."
 			echo "Execute \`git checkout '$BRANCH'\` to switch to the associated branch."
