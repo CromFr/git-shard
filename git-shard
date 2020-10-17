@@ -91,6 +91,20 @@ function expand-shard-match(){
 	fi
 }
 
+function append-patch-message(){
+	local blanklines=0
+	while read -r line; do
+		if [ -z "$line" ]; then
+			blanklines=$((blanklines + 1))
+			if (( blanklines == 2)); then
+				echo -e "$1"
+				echo
+			fi
+		fi
+		echo "$line"
+	done
+}
+
 function migrate-commits(){
 
 	local commit_from=""
@@ -210,14 +224,6 @@ function migrate-commits(){
 		git-main checkout "$mainrepo_branch"
 	fi
 }
-
-
-
-
-
-
-
-
 
 SUBCOMMAND="${1:-help}"
 case "$SUBCOMMAND" in -h|--help|help)
@@ -430,6 +436,19 @@ case "$SUBCOMMAND" in
 			fi
 			git-sub "$SHARDPATH" "$@"
 		fi
+		;;
+
+	apply-shard-commit)
+		SHARDPATH="$1"
+		COMMIT="$2"
+		shift
+		shift
+		COMMITHASH=$(git-sub "$SHARDPATH" rev-parse "$COMMIT")
+
+		git-sub "$SHARDPATH" format-patch --patch --no-stat --stdout "$COMMIT^..$COMMIT" \
+		| append-patch-message "SHARD-PATH: $SHARDPATH\nSHARD-REF: $COMMITHASH" \
+		| git-main am --directory="$SHARDPATH" "$@" \
+		|| git-main am --abort
 		;;
 
 	*)
