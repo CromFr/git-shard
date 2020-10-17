@@ -7,6 +7,13 @@ rm -rf "$(dirname "$0")/test/"
 mkdir "$(dirname "$0")/test"
 cd "$(dirname "$0")/test"
 
+git shard -h >/dev/null
+git shard init -h >/dev/null
+git shard remove -h >/dev/null
+git shard files -h >/dev/null
+git shard commit -h >/dev/null
+git shard exec -h >/dev/null
+
 git init
 
 echo "# Main project" > README.md
@@ -69,6 +76,7 @@ echo "Include this" > "RestrictedProject/MATCH.md"
 echo "Include this" > "RestrictedProject/SPACED NAME.md"
 echo "Include this" > "RestrictedProject/SPACED NAME with more.md"
 echo "Include this" > "RestrictedProject/SPACED NA.md"
+echo "Exclude this" > "RestrictedProject/yolo"
 
 git shard files RestrictedProject add "MATCH*"
 git shard files RestrictedProject add "yolo"
@@ -119,6 +127,9 @@ git shard commit --no-gpg-sign
 
 (( $(git shard exec lib/public-lib show --pretty="" --name-only HEAD | wc -l) == 1))
 (( $(git shard exec RestrictedProject show --pretty="" --name-only HEAD | wc -l) == 4))
+
+
+(( $(git shard list | wc -l) == 5))
 
 echo "SUCCESS ! :)"
 

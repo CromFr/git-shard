@@ -44,7 +44,7 @@ function get-shard-exists(){
 			echo 0
 		fi
 	else
-		if git-main config --local "shards.$shard_path.upstream"; then
+		if git-main config --local "shards.$shard_path.upstream" >/dev/null; then
 			echo 1
 		else
 			echo 0
@@ -353,11 +353,11 @@ case "$SUBCOMMAND" in
 			echo " path_spec   Path to a file or directory. Can contain wildcards for matching multiple files"
 			exit 0
 		esac
-		SHARDPATH="$1"
+		SHARDSPEC="$1"
 		COMMAND="$2"
 		VALUE="${3:-}"
 
-		(( $(get-shard-exists "$SHARDPATH") == 1 )) || (echo "There is no shard for path $SHARDPATH" && exit 1)
+		(( $(get-shard-exists "$SHARDSPEC") == 1 )) || (echo "There is no shard for path $SHARDSPEC" && exit 1)
 
 		while read -r SHARDPATH; do
 			case "$COMMAND" in
@@ -385,7 +385,7 @@ case "$SUBCOMMAND" in
 					;;
 			esac
 
-		done < <(expand-shard-match "$SHARDPATH")
+		done < <(expand-shard-match "$SHARDSPEC")
 		;;
 
 	commit)
