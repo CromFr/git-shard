@@ -1,0 +1,16 @@
+name: Git-shard tests
+on: push
+
+jobs:
+  test:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os:
+          - ubuntu-latest
+          - ubuntu-18.04
+          - windows-latest
+    steps:
+      - uses: actions/checkout@v2
+      - run: ./test.sh
+        shell: bash
