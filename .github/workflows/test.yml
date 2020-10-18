@@ -12,5 +12,11 @@ jobs:
           - windows-latest
     steps:
       - uses: actions/checkout@v2
+      - name: Setup git
+        shell: bash
+        run: |
+          git config --global user.name "GitShardTester"
+          git config --global user.email "GitShardTester@example.com"
+
       - run: ./test.sh
         shell: bash
