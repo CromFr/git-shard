@@ -1,5 +1,7 @@
 # Git Shard
 
+![Git-shard tests](https://github.com/CromFr/git-shard/workflows/Git-shard%20tests/badge.svg)
+
 Git shard is a tool for publishing multiple small Git repositories from one single big Git repository, without having to handle many git submodules.
 
 # Installation
