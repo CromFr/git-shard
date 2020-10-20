@@ -11,7 +11,7 @@ git shard -h >/dev/null
 git shard init -h >/dev/null
 git shard remove -h >/dev/null
 git shard files -h >/dev/null
-git shard commit -h >/dev/null
+git shard push -h >/dev/null
 git shard exec -h >/dev/null
 
 git init
@@ -31,8 +31,7 @@ git commit --no-gpg-sign -m "First commit !"
 
 echo "I wanted to add this" >> ProjectA/README.md
 git add .
-git commit --no-gpg-sign -m "Appended project A readme"
-
+git commit --no-gpg-sign -m "ProjectA: Appended readme"
 
 echo "===================================================== FirstRound"
 
@@ -40,16 +39,16 @@ git shard init ProjectA
 git shard init ProjectB
 git shard init lib/public-lib
 
-git shard commit --no-gpg-sign
+git shard push --no-gpg-sign
 (( $(git shard exec ProjectA show --pretty="" --name-only HEAD | wc -l) == 1))
 (( $(git shard exec ProjectB show --pretty="" --name-only HEAD | wc -l) == 1))
 (( $(git shard exec lib/public-lib show --pretty="" --name-only HEAD | wc -l) == 2))
 
 echo -e "\nThis is a super handy library" >> lib/public-lib/README.md
 git add .
-git commit --no-gpg-sign -m "Appended project A readme"
+git commit --no-gpg-sign -m "lib/public-lib: Appended readme"
 
-git shard commit --no-gpg-sign
+git shard push --no-gpg-sign
 (( $(git shard exec lib/public-lib show --pretty="" --name-only HEAD | wc -l) == 1))
 
 
@@ -66,8 +65,8 @@ git shard files RestrictedProject add INC.md
 git shard files RestrictedProject add README.md
 
 git add .
-git commit --no-gpg-sign -m "Added restricted project"
-git shard commit --no-gpg-sign
+git commit --no-gpg-sign -m "RestrictedProject: Added files"
+git shard push --no-gpg-sign
 (( $(git shard exec RestrictedProject show --pretty="" --name-only HEAD | wc -l) == 2))
 
 
@@ -84,8 +83,8 @@ git shard files RestrictedProject remove "yolo"
 git shard files RestrictedProject add "SPACED NAME*"
 
 git add .
-git commit --no-gpg-sign -m "Added restricted project"
-git shard commit --no-gpg-sign
+git commit --no-gpg-sign -m "RestrictedProject: Added more files for pattern matching test"
+git shard push --no-gpg-sign
 (( $(git shard exec RestrictedProject show --pretty="" --name-only HEAD | wc -l) == 4))
 
 
@@ -93,7 +92,7 @@ echo "===================================================== RootShard"
 
 git shard init .
 git shard files . add README.md
-git shard commit --no-gpg-sign
+git shard push --no-gpg-sign
 (( $(git shard exec . show --pretty="" --name-only HEAD | wc -l) == 1))
 
 git shard remove .
@@ -111,18 +110,18 @@ mkdir BranchRepo
 echo "This shard tracks a specific branch of the main repo" > BranchRepo/README.md
 git shard init --branch branch-repo BranchRepo/
 
-git shard commit --no-gpg-sign
+git shard push --no-gpg-sign
 git shard exec BranchRepo show HEAD && exit 1 # No commits
 
 git checkout branch-repo
-git shard commit --no-gpg-sign
+git shard push --no-gpg-sign
 git shard exec BranchRepo show HEAD && exit 1 # No commits
 
 git add .
 git commit --no-gpg-sign -m "Added branched shard"
 
 git checkout branch-repo
-git shard commit --no-gpg-sign
+git shard push --no-gpg-sign
 (( $(git shard exec BranchRepo show --pretty="" --name-only HEAD | wc -l) == 1))
 
 (( $(git shard exec lib/public-lib show --pretty="" --name-only HEAD | wc -l) == 1))
@@ -130,6 +129,34 @@ git shard commit --no-gpg-sign
 
 
 (( $(git shard list | wc -l) == 5))
+
+echo "===================================================== shard to main copy"
+
+git checkout master
+
+echo "This is a sample new file" > ProjectA/sample.txt
+git shard exec ProjectA add sample.txt
+git shard exec ProjectA commit --no-gpg-sign -m "$(echo -e "Added new file\n\nThis is a long commit message")" --author="John Doe <john.doe@dev.null>"
+echo "Another line has been added" >> ProjectA/sample.txt
+git shard exec ProjectA add sample.txt
+git shard exec ProjectA commit --no-gpg-sign -m "One more line in sample.txt" --author="John Doe <john.doe@dev.null>"
+rm ProjectA/sample.txt
+
+# Try to copy impossible commit (applying HEAD requires HEAD^)
+(( $(git log --format=%h | wc -l) == 5 ))
+(git shard pull ProjectA --range "HEAD^-" --no-gpg-sign >& /dev/null && exit 1) || true
+git am --abort
+
+# Copy last commits in order
+git shard pull ProjectA --no-gpg-sign
+(( $(git log --format=%h | wc -l) == 7 ))
+
+# Should be noop
+git shard pull ProjectA --no-gpg-sign
+(( $(git log --format=%h | wc -l) == 7 ))
+
+
+
 
 echo "SUCCESS ! :)"
 
