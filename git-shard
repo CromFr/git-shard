@@ -198,15 +198,15 @@ function get-push-range(){
 
 SUBCOMMAND="${1:-help}"
 case "$SUBCOMMAND" in -h|--help|help)
-	echo "Usage: git shard subcommand [options]"
+	echo "Usage: git shard <subcommand> [options]"
 	echo
 	echo "Available subcommand:"
 	echo " init   Register a directory as a shard and initialize/clone its associated git repository"
 	echo " list   List all registered shards"
 	echo " remove Un-register shards"
 	echo " files  Limit an existing shard to a set of files and directories"
-	echo " push   Copy commits from the main repository to each shard"
-	echo " pull   Copy commits from a given shard into the main repository"
+	echo " push   Copy commits from the main repository to the shards"
+	echo " pull   Copy commits from the shards into the main repository"
 	echo " exec   Executes a git command inside a shard (do not repeat the 'git' command)"
 	echo " help   Display this message"
 	exit 0
@@ -223,7 +223,7 @@ case "$SUBCOMMAND" in
 		while (( $# > 0 )); do
 			case "$1" in
 				-h|--help)
-					echo "Usage: git shard init [options] shard_path"
+					echo "Usage: git shard init [options] <shard_path>"
 					echo
 					echo "Register a directory as a shard and initialize/clone its associated git repository."
 					echo "The shard is versioned using a bare repository stored in .git/shards/"
@@ -328,7 +328,7 @@ case "$SUBCOMMAND" in
 
 	remove)
 		case "${1:-}" in -h|--help|help)
-			echo "Usage: git shard remove shard_path [more_shard_path...]"
+			echo "Usage: git shard remove <shard_path> [<more_shard_path>...]"
 			echo
 			echo "Un-register one or more shards and remove its associated git repository from .git/shards/"
 			echo
@@ -348,14 +348,14 @@ case "$SUBCOMMAND" in
 
 	files)
 		case "${1:-}" in -h|--help|help)
-			echo "Usage: git shard files shard_path command [path_spec]"
+			echo "Usage: git shard files <shard_path> <subcommand> [path_spec]"
 			echo
 			echo "Limits a shard to only track a list of files and directories."
 			echo "Once at least one path is defined, the shard repository will ignore any other file."
 			echo
 			echo "Arguments:"
 			echo " shard_path  Optional path of the shard. Supports wildcard matching.. Default: '*'"
-			echo " command     either add, remove, get, set"
+			echo " subcommand  Either add, remove, get, set"
 			echo " path_spec   Path to a file or directory. Can contain wildcards for matching multiple files"
 			exit 0
 		esac
@@ -627,7 +627,7 @@ case "$SUBCOMMAND" in
 
 	exec)
 		case "${1:-help}" in -h|--help|help)
-			echo "Usage: git shard exec shard_path [git_args]"
+			echo "Usage: git shard exec <shard_path> [git_args]"
 			echo
 			echo "Executes a git command inside a shard (do not repeat the 'git' command)"
 			echo
