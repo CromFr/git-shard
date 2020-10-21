@@ -366,7 +366,12 @@ case "$SUBCOMMAND" in
 					echo "Copy commits from the main repository to each shard"
 					echo
 					echo "Arguments:"
-					echo " options  Forwarded to the 'git commit' command"
+					echo " shard_path  Path of the shard"
+					echo " options     See 'Options' below."
+					echo
+					echo "Options:"
+					echo " --range RANGE  Shard commits to copy. Cannot be set with '*' shard_path. If not provided, automatically detects missing commits."
+					echo " *              Other options are forwarded to the 'git am' command"
 					exit 0
 					;;
 				--range) shift; RANGE="$1" ;;
@@ -413,14 +418,17 @@ case "$SUBCOMMAND" in
 
 			while read -r SHARD_PATH; do
 				echo "=> $SHARD_PATH"
-				if [ ! -d "$SHARD_PATH" ]; then
-					echo "  Shard path is not a directory / does not exist"
+
+				# Check branch tracking
+				SHARD_TRACKING_BRANCH=$(git-main config --local "shards.$SHARD_PATH.branch")
+				if [[ "$SHARD_TRACKING_BRANCH" != "$MAINREPO_BRANCH" ]]; then
+					echo "  Untracked branch: this shard tracks '$SHARD_TRACKING_BRANCH'"
 					continue
 				fi
 
-				SHARD_TRACKING_BRANCH=$(git-main config --local "shards.$SHARD_PATH.branch")
-				if [[ "$SHARD_TRACKING_BRANCH" != "$MAINREPO_BRANCH" ]]; then
-					echo "  Not affected (the shard tracks branch $SHARD_TRACKING_BRANCH, while main repo is on $MAINREPO_BRANCH)"
+				# Check shard dir exists
+				if [ ! -d "$SHARD_PATH" ]; then
+					echo "  Shard path is not a directory / does not exist"
 					continue
 				fi
 
@@ -502,8 +510,8 @@ case "$SUBCOMMAND" in
 					echo "Copy commits from the given shard into the main repository"
 					echo
 					echo "Arguments:"
-					echo " shard_path Optional path of the shard. '*' for all shards. Default: '*'"
-					echo " options    Forwarded to the 'git am' command"
+					echo " shard_path  Optional path of the shard. '*' for all shards. Default: '*'"
+					echo " options     See 'Options' below."
 					echo
 					echo "Options:"
 					echo " --range RANGE  Shard commits to copy. Cannot be set with '*' shard_path. If not provided, automatically detects missing commits."
@@ -532,8 +540,18 @@ case "$SUBCOMMAND" in
 			SHARDSPEC="*"
 		fi
 
+		MAINREPO_BRANCH=$(git-main rev-parse --abbrev-ref HEAD)
+
 		# Loop over each shard spec
 		while read -r SHARD_PATH; do
+			echo "=> $SHARD_PATH"
+
+			# Check branch tracking
+			SHARD_TRACKING_BRANCH=$(git-main config --local "shards.$SHARD_PATH.branch")
+			if [[ "$SHARD_TRACKING_BRANCH" != "$MAINREPO_BRANCH" ]]; then
+				echo "  Untracked branch: this shard tracks '$SHARD_TRACKING_BRANCH'"
+				continue
+			fi
 
 			if [ -z "$RANGE" ]; then
 				# Detect range from commits
@@ -543,18 +561,24 @@ case "$SUBCOMMAND" in
 				SHARD_COMMIT="$RANGE"
 			fi
 
-			while read -r COMMITHASH; do
-				# Reproduce commit in main repo using patch files
-				COMMIT_INFO=$(git-sub "$SHARD_PATH" show -s --format='"%s" (%h)' "$COMMITHASH")
-				echo "=========================================="
-				echo "Copying commit $COMMIT_INFO from $SHARD_PATH to main repo"
-				echo "=========================================="
+			COMMITS=$(git-sub "$SHARD_PATH" log --format="%H" "$SHARD_COMMIT" | tac)
+			if [ -z "$COMMITS" ]; then
+				echo "  No commits to pull"
+			else
+				while read -r COMMITHASH; do
+					# Reproduce commit in main repo using patch files
+					COMMIT_INFO=$(git-sub "$SHARD_PATH" show -s --format='"%s" (%h)' "$COMMITHASH")
+					echo "=========================================="
+					echo "Copying commit $COMMIT_INFO from $SHARD_PATH to main repo"
+					echo "=========================================="
 
-				git-sub "$SHARD_PATH" format-patch --patch --no-stat --stdout "$COMMITHASH^-" \
-					| append-patch-message "SHARD-COMMIT: $SHARD_PATH:$COMMITHASH" \
-					| git-main am --directory="$SHARD_PATH" "${AM_ARGS[@]}"
+					git-sub "$SHARD_PATH" format-patch --patch --no-stat --stdout "$COMMITHASH^-" \
+						| append-patch-message "SHARD-COMMIT: $SHARD_PATH:$COMMITHASH" \
+						| git-main am --directory="$SHARD_PATH" "${AM_ARGS[@]}"
 
-			done < <(git-sub "$SHARD_PATH" log --format="%H" "$SHARD_COMMIT" | tac)
+				done < <(echo "$COMMITS")
+			fi
+
 		done < <(expand-shard-spec "$SHARDSPEC")
 		;;
 
