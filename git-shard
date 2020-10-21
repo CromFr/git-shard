@@ -64,21 +64,31 @@ function get-shards-path(){
 	done < <(git-main config --local -l | grep -E '^shards\..*\.upstream' || true)
 }
 
+
+# Expand a shard spec (*, path/to/shard, shards_*, etc.) into a list of shard paths (one by line)
+function expand-shard-spec(){
+	local notfound=1
+	if [[ "$1" == *\** ]]; then
+		while read -r SHARD_PATH; do
+			# shellcheck disable=2053
+			if [[ "$SHARD_PATH" == $1 ]]; then
+				notfound=0
+				echo "$SHARD_PATH"
+			fi
+		done < <(get-shards-path)
+	else
+		notfound=0
+		echo "${1%/}"
+	fi
+	return "$notfound"
+}
 # Returns 1 if the shard has been registered
 function get-shard-exists(){
 	local shard_path="$1"
-	if [[ "$shard_path" == "*" ]]; then
-		if git-main config --local -l | grep -E '^shards\..*\.upstream' >/dev/null; then
-			echo 1
-		else
-			echo 0
-		fi
+	if git-main config --local "shards.$shard_path.upstream" >/dev/null; then
+		echo 1
 	else
-		if git-main config --local "shards.$shard_path.upstream" >/dev/null; then
-			echo 1
-		else
-			echo 0
-		fi
+		echo 0
 	fi
 }
 # Returns the oldest commit between those provided
@@ -139,24 +149,7 @@ function get-shard-last-shardref(){
 	get-latest-shard-commit "$shard_path" "$last_commited_in_shard" "$last_commited_in_main"
 }
 
-# Expand a shard spec (*, path/to/shard, shards_*, etc.) into a list of shard paths (one by line)
-function expand-shard-spec(){
-	local notfound=1
-	if [[ "$1" == *\** ]]; then
-		while read -r SHARD_PATH; do
-			# shellcheck disable=2053
-			if [[ "$SHARD_PATH" == $1 ]]; then
-				notfound=0
-				echo "$SHARD_PATH"
-			fi
-		done < <(get-shards-path)
-	else
-		notfound=0
-		echo "${1%/}"
-	fi
-	exit "$notfound"
-}
-
+# Append a custom message to a patch file
 function append-patch-message(){
 	local blanklines=0
 	local forward=0
@@ -352,11 +345,8 @@ case "$SUBCOMMAND" in
 
 		for SHARD_SPEC in "$@"; do
 			while read -r SHARD_PATH; do
-				(( $(get-shard-exists "$SHARD_PATH") == 1 )) || (echo "There is no shard for path $SHARD_PATH" && exit 1)
-
 				rm -rf "$(get-shard-repo-path "$SHARD_PATH")"
 				git config --local --remove-section "shards.$SHARD_PATH"
-
 			done < <(expand-shard-spec "$SHARD_SPEC")
 		done
 		;;
@@ -377,8 +367,6 @@ case "$SUBCOMMAND" in
 		SHARD_SPEC="$1"
 		COMMAND="$2"
 		VALUE="${3:-}"
-
-		(( $(get-shard-exists "$SHARD_SPEC") == 1 )) || (echo "There is no shard for path $SHARD_SPEC" && exit 1)
 
 		while read -r SHARD_PATH; do
 			case "$COMMAND" in

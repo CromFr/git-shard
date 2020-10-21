@@ -52,6 +52,9 @@ git shard init ProjectA
 git shard init ProjectB
 git shard init lib/public-lib
 
+#################### Try adding the same shard twice
+(git shard init ProjectA >&/dev/null && exit 1) || true
+
 #################### List shards
 (( $(git shard list | wc -l) == 3))
 (( $(git shard list "Project*" | wc -l) == 2))
