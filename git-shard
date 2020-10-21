@@ -225,14 +225,10 @@ case "$SUBCOMMAND" in
 					echo " --branch BRANCH  Branch of the main repository that will be bound to the master branch of the shard. Defaults to the current branch of the main repository."
 					exit 0
 					;;
-				--origin)
-					shift
-					UPSTREAM="$1"
-					;;
-				--branch)
-					shift
-					BRANCH="$1"
-					;;
+				--origin) shift; UPSTREAM="$1" ;;
+				--origin=*) UPSTREAM="${1#*=}" ;;
+				--branch) shift; BRANCH="$1" ;;
+				--branch=*) BRANCH="${1#*=}" ;;
 				*)
 					if [ -z "$SHARDPATH" ]; then
 						SHARDPATH="$1"
@@ -373,10 +369,8 @@ case "$SUBCOMMAND" in
 					echo " options  Forwarded to the 'git commit' command"
 					exit 0
 					;;
-				--range)
-					shift
-					RANGE="$1"
-					;;
+				--range) shift; RANGE="$1" ;;
+				--range=*) RANGE="${1#*=}" ;;
 				*)
 					if [ -z "$SHARDSPEC" ] && [[ "$1" != -* ]]; then
 						SHARDSPEC="$1"
@@ -516,10 +510,8 @@ case "$SUBCOMMAND" in
 					echo " *              Other options are forwarded to the 'git am' command"
 					exit 0
 					;;
-				--range)
-					shift
-					RANGE="$1"
-					;;
+				--range) shift; RANGE="$1" ;;
+				--range=*) RANGE="${1#*=}" ;;
 				*)
 					if [ -z "$SHARDSPEC" ] && [[ "$1" != -* ]]; then
 						SHARDSPEC="$1"
