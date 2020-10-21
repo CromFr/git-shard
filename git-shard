@@ -1,6 +1,30 @@
 #!/bin/bash
 # shellcheck disable=SC2155
 
+
+# Stack trace
+function errexit() {
+  local err=$?
+  set +o xtrace
+  local code="${1:-1}"
+  echo "Error in ${BASH_SOURCE[1]}:${BASH_LINENO[0]}. '${BASH_COMMAND}' exited with status $err"
+  # Print out the stack trace described by $function_stack
+  if [ ${#FUNCNAME[@]} -gt 2 ]
+  then
+    echo "Call tree:"
+    for ((i=1;i<${#FUNCNAME[@]}-1;i++))
+    do
+      echo " $i: ${BASH_SOURCE[$i+1]}:${BASH_LINENO[$i]} ${FUNCNAME[$i]}(...)"
+    done
+  fi
+  echo "Exiting with status ${code}"
+  exit "${code}"
+}
+trap 'errexit' ERR
+set -o errtrace
+
+
+
 set -euo pipefail
 # set -x
 
@@ -81,18 +105,24 @@ function get-latest-shard-commit(){
 function get-shard-last-mainref(){
 	local shard_path="$1"
 
-	local last_inspected=$(git-main config --local "shards.$shard_path.commit")
-	local last_commited_in_shard=$(git-sub "$shard_path" show HEAD -q --format='%b' 2>/dev/null | grep -oE "^SHARD-MAINREF: \w+$" | cut -d ' ' -f 2 || true)
-	local last_commited_in_main=$(git-main log -q --format='%b%H' 2>/dev/null | grep -E "^SHARD-COMMIT: $shard_path:\w+$" -A1 | head -n2 | tail -n1 || true)
+	local last_inspected
+	last_inspected=$(git-main config --local "shards.$shard_path.commit")
+	local last_commited_in_shard
+	last_commited_in_shard=$(git-sub "$shard_path" show HEAD -q --format='%b' 2>/dev/null | grep -oE "^SHARD-MAINREF: \w+$" | cut -d ' ' -f 2 || true)
+	local last_commited_in_main
+	last_commited_in_main=$(git-main log -q --format='%b%H' 2>/dev/null | grep -E "^SHARD-COMMIT: $shard_path:\w+$" -A1 | head -n2 | tail -n1 || true)
 
-	local latest=$(get-latest-main-commit "$last_inspected" "$last_commited_in_shard")
+	local latest
+	latest=$(get-latest-main-commit "$last_inspected" "$last_commited_in_shard")
 	get-latest-main-commit "$latest" "$last_commited_in_main"
 }
 function get-shard-last-shardref(){
 	local shard_path="$1"
 
-	local last_commited_in_shard=$(git-sub "$shard_path" log -q --format='%b%H' 2>/dev/null | grep -E "^SHARD-MAINREF: \w+$" -A1 | head -n2 | tail -n1)
-	local last_commited_in_main=$(git-main log -q --format='%b' 2>/dev/null | grep -oE "^SHARD-COMMIT: $shard_path:\w+$" | cut -d ':' -f 3)
+	local last_commited_in_shard
+	last_commited_in_shard=$(git-sub "$shard_path" log -q --format='%b%H' 2>/dev/null | grep -E "^SHARD-MAINREF: \w+$" -A1 | head -n2 | tail -n1 || true)
+	local last_commited_in_main
+	last_commited_in_main=$(git-main log -q --format='%b' 2>/dev/null | grep -oE "^SHARD-COMMIT: $shard_path:\w+$" | cut -d ':' -f 3 || true)
 
 	get-latest-shard-commit "$shard_path" "$last_commited_in_shard" "$last_commited_in_main"
 }
@@ -125,142 +155,33 @@ function append-patch-message(){
 	done
 }
 
-function migrate-commits(){
-
-	local range=""
-	local commit_args=()
-
-	while (( $# > 0 )); do
-		case "$1" in
-			--range)
-				shift
-				range="$1"
-				;;
-			*)
-				commit_args+=("$1")
-				;;
-		esac
-
-		shift
-	done
-
-
+function get-push-range(){
+	local range="$1"
 	if [ -z "$range" ]; then
 		# Find earliest commit
 		local oldest=""
 		while read -r SHARDPATH; do
-			local COMMIT=$(get-shard-last-mainref "$SHARDPATH")
+			local commit
+			commit=$(get-shard-last-mainref "$SHARDPATH")
 
-			if [ -z "$oldest" ] || [[ $(get-oldest-main-commit "$oldest" "$COMMIT") == "$COMMIT" ]]; then
-				local oldest=$COMMIT
+			if [ -z "$oldest" ] || [[ $(get-oldest-main-commit "$oldest" "$commit") == "$commit" ]]; then
+				local oldest=$commit
 			fi
 		done < <(get-shards-path)
 
 		if [ -z "$oldest" ]; then
-			range="HEAD^-"
+			echo "HEAD^-"
 		else
-			range="$oldest^..HEAD"
+			echo "$oldest^..HEAD"
 		fi
 
 	else
 		# use provided range
 		if [[ "$range" != *..* ]]; then
-			range="$range^-"
+			echo "$range^-"
 		else
-			range="$range"
+			echo "$range"
 		fi
-	fi
-
-
-	local commits_to_inspect=$(git-main log --format="%H" "$range" | tac)
-	if [ -z "$commits_to_inspect" ]; then
-		echo "Not commits to replicate on shards"
-		exit 0
-	fi
-
-	# Stash changes if any
-	if [ -n "$(git-main status --porcelain)" ]; then
-		git-main stash push -u -m "Pre git-shard commit cleaning"
-		trap "git-main stash pop -q" EXIT
-	fi
-
-	local mainrepo_branch=$(git-main rev-parse --abbrev-ref HEAD)
-
-
-	# Checkout and replicate each commit in each shard
-	for HASH in $commits_to_inspect; do
-		echo "=========================================="
-		echo "Copying commit $(git-main show -s --format='"%s" (%h)' "$HASH") to shards"
-		echo "=========================================="
-		git-main checkout "$HASH" 2>/dev/null
-
-		local shard_path
-		while read -r shard_path; do
-			echo "=> $shard_path"
-			if [ ! -d "$shard_path" ]; then
-				echo "  Shard path is not a directory / does not exist"
-				continue
-			fi
-
-			local shard_tracking_branch=$(git-main config --local "shards.$shard_path.branch")
-			if [[ "$shard_tracking_branch" != "$mainrepo_branch" ]]; then
-				echo "  Not affected (the shard tracks $shard_tracking_branch, not $mainrepo_branch)"
-				continue
-			fi
-
-			local shard_commit=$(get-shard-last-mainref "$shard_path")
-			if [[ -z "$shard_commit" ]]; then
-				# First commit of the shard. Add everything
-				local files=$(git-main config --local "shards.$shard_path.files" || true)
-				if [ -n "$files" ]; then
-					while read -r file; do
-						git-sub "$shard_path" add "$file"
-					done < <(tr ":" "\n" <<< "$files")
-				else
-					git-sub "$shard_path" add .
-				fi
-
-				git-sub "$shard_path" commit \
-					--message="$(printf "Initial shard commit\n\nSHARD-MAINREF: %s" "$HASH")" \
-					"${commit_args[@]}"
-			else
-				# Patch current shard repo
-				if [[ "$HASH" == "$shard_commit" || "$(get-latest-main-commit "$shard_commit" "$HASH")" != "$HASH" ]]; then
-					echo "  Commit already copied"
-				else
-					local patch=$(git-main format-patch --patch --no-stat --stdout --relative="$shard_path" "$HASH^-")
-					if [ -z "$patch" ]; then
-						echo "Not affected by changes"
-						git-main config --local "shards.$shard_path.commit" "$HASH"
-					else
-						# Filter to apply the patch only to shard files
-						local am_args=()
-						local files=$(git-main config --local "shards.$shard_path.files" || true)
-						if [ -n "$files" ]; then
-							while read -r file; do
-								am_args+=("--include=$file")
-							done < <(tr ":" "\n" <<< "$files")
-						fi
-
-						# Reset the shard as a clean state
-						git-sub "$shard_path" reset --hard >/dev/null
-						git-sub "$shard_path" clean -f >/dev/null
-
-						# Apply commit
-						echo "$patch" \
-							| append-patch-message "SHARD-MAINREF: $HASH" \
-							| git-sub "$shard_path" am "${am_args[@]}" "${commit_args[@]}"
-					fi
-				fi
-			fi
-
-			# Update last inspected commit for shard
-			git-main config --local "shards.$shard_path.commit" "$HASH"
-		done < <(get-shards-path)
-	done
-
-	if [ -n "$mainrepo_branch" ]; then
-		git-main checkout "$mainrepo_branch"
 	fi
 }
 
@@ -359,7 +280,9 @@ case "$SUBCOMMAND" in
 
 	list)
 		while read -r SHARD_PATH; do
-			echo "$SHARD_PATH=>$(git-main config --local --get "shards.$SHARD_PATH.upstream")@$(git-main config --local --get "shards.$SHARD_PATH.branch")"
+			UPSTREAM=$(git-main config --local --get "shards.$SHARD_PATH.upstream")
+			BRANCH=$(git-main config --local --get "shards.$SHARD_PATH.branch")
+			echo "$SHARD_PATH=>$UPSTREAM@$BRANCH"
 		done < <(get-shards-path)
 		;;
 
@@ -435,16 +358,142 @@ case "$SUBCOMMAND" in
 		;;
 
 	push)
-		case "${1:-}" in -h|--help|help)
-			echo "Usage: git shard push [options]"
-			echo
-			echo "Copy commits from the main repository to each shard"
-			echo
-			echo "Arguments:"
-			echo " options  Forwarded to the 'git commit' command"
+		SHARDSPEC="*"
+		RANGE=""
+		COMMIT_ARGS=()
+
+		while (( $# > 0 )); do
+			case "$1" in
+				-h|--help|help)
+					echo "Usage: git shard push [shard_path] [options]"
+					echo
+					echo "Copy commits from the main repository to each shard"
+					echo
+					echo "Arguments:"
+					echo " options  Forwarded to the 'git commit' command"
+					exit 0
+					;;
+				--range)
+					shift
+					RANGE="$1"
+					;;
+				*)
+					if [ -z "$SHARDSPEC" ] && [[ "$SHARDSPEC" != -* ]]; then
+						SHARDSPEC="$1"
+					else
+						COMMIT_ARGS+=("$1")
+					fi
+					;;
+			esac
+
+			shift
+		done
+
+		RANGE=$(get-push-range "$RANGE")
+		if [ -z "$RANGE" ]; then
+			echo "No commits to push to shards"
 			exit 0
-		esac
-		migrate-commits "$@"
+		fi
+
+		COMMITS_TO_PUSH=$(git-main log --format="%H" "$RANGE" | tac)
+		if [ -z "$COMMITS_TO_PUSH" ]; then
+			echo "No commits to push to shards for range $RANGE"
+			exit 0
+		fi
+
+		# Stash changes if any
+		if [ -n "$(git-main status --porcelain)" ]; then
+			git-main stash push -u -m "Pre git-shard commit cleaning"
+			trap "git-main stash pop -q" EXIT
+		fi
+
+		MAINREPO_BRANCH=$(git-main rev-parse --abbrev-ref HEAD)
+
+
+		# Checkout and replicate each commit in each shard
+		for HASH in $COMMITS_TO_PUSH; do
+			echo "=========================================="
+			COMMIT_INFO=$(git-main show -s --format='"%s" (%h)' "$HASH")
+			echo "Copying commit $COMMIT_INFO to shards"
+			echo "=========================================="
+
+			while read -r SHARD_PATH; do
+				echo "=> $SHARD_PATH"
+				if [ ! -d "$SHARD_PATH" ]; then
+					echo "  Shard path is not a directory / does not exist"
+					continue
+				fi
+
+				SHARD_TRACKING_BRANCH=$(git-main config --local "shards.$SHARD_PATH.branch")
+				if [[ "$SHARD_TRACKING_BRANCH" != "$MAINREPO_BRANCH" ]]; then
+					echo "  Not affected (the shard tracks branch $SHARD_TRACKING_BRANCH, while main repo is on $MAINREPO_BRANCH)"
+					continue
+				fi
+
+				SHARD_COMMIT=$(get-shard-last-mainref "$SHARD_PATH")
+				if [[ -z "$SHARD_COMMIT" ]]; then
+					# First commit of the shard. Add everything
+
+					# Checkout main repo to get the shard at the correct state
+					git-main checkout "$HASH" 2>/dev/null
+
+					# Stage files
+					# Note: `git add` adds files relative to the repo work tree
+					FILES=$(git-main config --local "shards.$SHARD_PATH.files" || true)
+					if [ -n "$FILES" ]; then
+						# Only files matched by shards.X.files
+						while read -r file; do
+							git-sub "$SHARD_PATH" add "$file"
+						done < <(tr ":" "\n" <<< "$FILES")
+					else
+						# While directory
+						git-sub "$SHARD_PATH" add .
+					fi
+
+					# Commit
+					git-sub "$SHARD_PATH" commit \
+						--message="$(printf "Initial shard commit\n\nSHARD-MAINREF: %s" "$HASH")" \
+						"${COMMIT_ARGS[@]}"
+
+					# Get back to the previous main branch
+					git-main checkout - 2>/dev/null
+				else
+					# Patch current shard repo
+					if [[ "$HASH" == "$SHARD_COMMIT" || "$(get-latest-main-commit "$SHARD_COMMIT" "$HASH")" != "$HASH" ]]; then
+						# Current commit is older that the last commit for this shard
+						echo "  Commit already copied"
+					else
+						PATCH=$(git-main format-patch --patch --no-stat --stdout --relative="$SHARD_PATH" "$HASH^-")
+						if [ -z "$PATCH" ]; then
+							# Resulting patch is empty
+							echo "Not affected by changes"
+							git-main config --local "shards.$SHARD_PATH.commit" "$HASH"
+						else
+							AM_ARGS=()
+							FILES=$(git-main config --local "shards.$SHARD_PATH.files" || true)
+							if [ -n "$FILES" ]; then
+								# Filter to apply the patch to only shard files
+								while read -r file; do
+									AM_ARGS+=("--include=$file")
+								done < <(tr ":" "\n" <<< "$FILES")
+							fi
+
+							# Reset the shard as a clean state
+							git-sub "$SHARD_PATH" reset --hard >/dev/null
+							git-sub "$SHARD_PATH" clean -f >/dev/null
+
+							# Apply commit
+							echo "$PATCH" \
+								| append-patch-message "SHARD-MAINREF: $HASH" \
+								| git-sub "$SHARD_PATH" am "${AM_ARGS[@]}" "${COMMIT_ARGS[@]}"
+						fi
+					fi
+				fi
+
+				# Update last inspected commit for shard
+				git-main config --local "shards.$SHARD_PATH.commit" "$HASH"
+			done < <(get-shards-path)
+		done
 		;;
 
 	pull)
@@ -488,27 +537,30 @@ case "$SUBCOMMAND" in
 		fi
 
 		# Loop over each shard spec
-		while read -r SHARDPATH; do
+		while read -r SHARD_PATH; do
 
 			if [ -z "$RANGE" ]; then
 				# Detect range from commits
-				SHARD_COMMIT="$(get-shard-last-shardref "$SHARDPATH")..HEAD"
+				SHARD_COMMIT="$(get-shard-last-shardref "$SHARD_PATH")..HEAD"
 			else
 				# use provided range
 				SHARD_COMMIT="$RANGE"
 			fi
 
+			echo "$SHARD_PATH: $SHARD_COMMIT"
+
 			while read -r COMMITHASH; do
 				# Reproduce commit in main repo using patch files
+				COMMIT_INFO=$(git-sub "$SHARD_PATH" show -s --format='"%s" (%h)' "$COMMITHASH")
 				echo "=========================================="
-				echo "Copying commit $(git-main show -s --format='"%s" (%h)' "$COMMITHASH") from $SHARDPATH to main repo"
+				echo "Copying commit $COMMIT_INFO from $SHARD_PATH to main repo"
 				echo "=========================================="
 
-				git-sub "$SHARDPATH" format-patch --patch --no-stat --stdout "$COMMITHASH^-" \
-					| append-patch-message "SHARD-COMMIT: $SHARDPATH:$COMMITHASH" \
-					| git-main am --directory="$SHARDPATH" "${AM_ARGS[@]}"
+				git-sub "$SHARD_PATH" format-patch --patch --no-stat --stdout "$COMMITHASH^-" \
+					| append-patch-message "SHARD-COMMIT: $SHARD_PATH:$COMMITHASH" \
+					| git-main am --directory="$SHARD_PATH" "${AM_ARGS[@]}"
 
-			done < <(git-sub "$SHARDPATH" log --format="%H" "$SHARD_COMMIT" | tac)
+			done < <(git-sub "$SHARD_PATH" log --format="%H" "$SHARD_COMMIT" | tac)
 		done < <(expand-shard-match "$SHARDSPEC")
 		;;
 
@@ -524,22 +576,30 @@ case "$SUBCOMMAND" in
 			exit 0
 		esac
 
-		SHARDPATH="$1"
+		SHARD_PATH="$1"
 		shift
 
-		if [[ "$SHARDPATH" == "*" ]]; then
+		if [[ "$SHARD_PATH" == "*" ]]; then
 			# Exec for each shard
-			while read -r SHARDPATH; do
-				echo "=> $SHARDPATH"
-				git-sub "$SHARDPATH" "$@" || true
+			while read -r SHARD_PATH; do
+				echo "=> $SHARD_PATH"
+				if [ ! -d "$SHARD_PATH" ]; then
+					echo "  Shard path is not a directory / does not exist"
+					continue
+				fi
+				git-sub "$SHARD_PATH" "$@" || true
 			done < <(git-shards-path)
 		else
 			# Exec for a specific shard
-			if (( ! $(get-shard-exists "$SHARDPATH") )); then
-				echo "No shard for $SHARDPATH"
+			if (( ! $(get-shard-exists "$SHARD_PATH") )); then
+				echo "No shard for $SHARD_PATH"
 				exit 1
 			fi
-			git-sub "$SHARDPATH" "$@"
+			if [ ! -d "$SHARD_PATH" ]; then
+				echo "  Shard path is not a directory / does not exist"
+				exit 1
+			fi
+			git-sub "$SHARD_PATH" "$@"
 		fi
 		;;
 

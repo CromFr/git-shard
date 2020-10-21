@@ -111,11 +111,11 @@ echo "This shard tracks a specific branch of the main repo" > BranchRepo/README.
 git shard init --branch branch-repo BranchRepo/
 
 git shard push --no-gpg-sign
-git shard exec BranchRepo show HEAD && exit 1 # No commits
+git shard exec BranchRepo show HEAD >&/dev/null && exit 1 # No commits
 
 git checkout branch-repo
 git shard push --no-gpg-sign
-git shard exec BranchRepo show HEAD && exit 1 # No commits
+git shard exec BranchRepo show HEAD >&/dev/null && exit 1 # No commits
 
 git add .
 git commit --no-gpg-sign -m "Added branched shard"
