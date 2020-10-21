@@ -35,6 +35,8 @@ if [[ "${OS:-}" == "Windows_NT" ]]; then
 	MAINREPO="$(cygpath -u "$MAINREPO")"
 	MAINREPOGIT="$(cygpath -u "$MAINREPOGIT")"
 fi
+
+# Returns the path where the shard is stored
 function get-shard-repo-path(){
 	local shard_path="$1"
 	if [[ "$shard_path" == "." ]]; then
@@ -44,21 +46,25 @@ function get-shard-repo-path(){
 	fi
 }
 
+# Run a git command inside the main repo
 function git-main(){
 	git --git-dir="$MAINREPOGIT" "$@"
 }
+# Run a git command inside a shard
 function git-sub(){
 	local shard_path="$1"
 	shift
 	git --git-dir="$(get-shard-repo-path "$shard_path")" --work-tree="$MAINREPO/$shard_path" "$@"
 }
 
+# Returns all shards path, one by line
 function get-shards-path(){
 	while read -r SHARD; do
 		echo "$SHARD" | sed -E 's|^shards\.(.*)\.upstream=.*|\1|'
 	done < <(git-main config --local -l | grep -E '^shards\..*\.upstream' || true)
 }
 
+# Returns 1 if the shard has been registered
 function get-shard-exists(){
 	local shard_path="$1"
 	if [[ "$shard_path" == "*" ]]; then
@@ -75,6 +81,7 @@ function get-shard-exists(){
 		fi
 	fi
 }
+# Returns the oldest commit between those provided
 function get-oldest-main-commit(){
 	# TODO: find a cleaner solution for returning the oldest commit
 	if [ -z "$1" ] || { [ -n "$2" ] && [ -n "$(git-main log "$1..$2")" ] ; }; then
@@ -83,6 +90,7 @@ function get-oldest-main-commit(){
 		echo "$2"
 	fi
 }
+# Returns the newest commit between those provided
 function get-latest-main-commit(){
 	# TODO: find a cleaner solution for returning the latest commit
 	if [ -z "$1" ] || { [ -n "$2" ] && [ -n "$(git-main log "$1..$2")" ] ; }; then
@@ -91,6 +99,7 @@ function get-latest-main-commit(){
 		echo "$1"
 	fi
 }
+# Returns the newest commit between those provided
 function get-latest-shard-commit(){
 	local shard_path="$1"
 	shift
@@ -102,6 +111,7 @@ function get-latest-shard-commit(){
 	fi
 }
 
+# Return the latest commit hash of the main repo that registered by git-shard
 function get-shard-last-mainref(){
 	local shard_path="$1"
 
@@ -116,6 +126,8 @@ function get-shard-last-mainref(){
 	latest=$(get-latest-main-commit "$last_inspected" "$last_commited_in_shard")
 	get-latest-main-commit "$latest" "$last_commited_in_main"
 }
+
+# Return the latest commit hash of a shard that registered by git-shard
 function get-shard-last-shardref(){
 	local shard_path="$1"
 
@@ -127,12 +139,22 @@ function get-shard-last-shardref(){
 	get-latest-shard-commit "$shard_path" "$last_commited_in_shard" "$last_commited_in_main"
 }
 
+# Expand a shard spec (*, path/to/shard, shards_*, etc.) into a list of shard paths (one by line)
 function expand-shard-spec(){
-	if [[ "$1" == "*" ]]; then
-		get-shards-path
+	local notfound=1
+	if [[ "$1" == *\** ]]; then
+		while read -r SHARD_PATH; do
+			# shellcheck disable=2053
+			if [[ "$SHARD_PATH" == $1 ]]; then
+				notfound=0
+				echo "$SHARD_PATH"
+			fi
+		done < <(get-shards-path)
 	else
-		echo "$1"
+		notfound=0
+		echo "${1%/}"
 	fi
+	exit "$notfound"
 }
 
 function append-patch-message(){
@@ -160,9 +182,9 @@ function get-push-range(){
 	if [ -z "$range" ]; then
 		# Find earliest commit
 		local oldest=""
-		while read -r SHARDPATH; do
+		while read -r SHARD_PATH; do
 			local commit
-			commit=$(get-shard-last-mainref "$SHARDPATH")
+			commit=$(get-shard-last-mainref "$SHARD_PATH")
 
 			if [ -z "$oldest" ] || [[ $(get-oldest-main-commit "$oldest" "$commit") == "$commit" ]]; then
 				local oldest=$commit
@@ -207,7 +229,7 @@ case "$SUBCOMMAND" in
 	init)
 		BRANCH=$(git-main rev-parse --abbrev-ref HEAD)
 		UPSTREAM=""
-		SHARDPATH=""
+		SHARD_PATH=""
 
 		while (( $# > 0 )); do
 			case "$1" in
@@ -230,8 +252,8 @@ case "$SUBCOMMAND" in
 				--branch) shift; BRANCH="$1" ;;
 				--branch=*) BRANCH="${1#*=}" ;;
 				*)
-					if [ -z "$SHARDPATH" ]; then
-						SHARDPATH="$1"
+					if [ -z "$SHARD_PATH" ]; then
+						SHARD_PATH="$1"
 					else
 						echo "Too many shard_path arguments"
 						exit 1
@@ -243,29 +265,29 @@ case "$SUBCOMMAND" in
 		done
 
 		# Assertions
-		[ -d "$SHARDPATH" ] || (echo "$SHARDPATH does not exist / is not a directory" && exit 1)
-		(( $(get-shard-exists "$SHARDPATH") == 0 )) || (echo "A shard already exists for path $SHARDPATH" && exit 1)
+		[ -d "$SHARD_PATH" ] || (echo "$SHARD_PATH does not exist / is not a directory" && exit 1)
+		(( $(get-shard-exists "$SHARD_PATH") == 0 )) || (echo "A shard already exists for path $SHARD_PATH" && exit 1)
 
-		SHARDPATH=$(realpath --relative-to="$MAINREPO" "$SHARDPATH")
-		SHARDSTORPATH="$(get-shard-repo-path "$SHARDPATH")"
+		SHARD_PATH=$(realpath --relative-to="$MAINREPO" "$SHARD_PATH")
+		SHARD_STORPATH="$(get-shard-repo-path "$SHARD_PATH")"
 
 		# Clone/create shard repository
-		mkdir -p "$SHARDSTORPATH"
+		mkdir -p "$SHARD_STORPATH"
 		if [[ "$UPSTREAM" != "" ]]; then
-			git clone --bare "$UPSTREAM" "$SHARDSTORPATH"
+			git clone --bare "$UPSTREAM" "$SHARD_STORPATH"
 
-			LAST_MAIN_COMMIT=$(git-sub "$SHARDPATH" show HEAD -q --format='%b' | grep -oE "^SHARD-MAINREF: \w+$" | cut -d ' ' -f 2)
-			git-main config --local "shards.$SHARDPATH.commit" "$LAST_MAIN_COMMIT"
+			LAST_MAIN_COMMIT=$(git-sub "$SHARD_PATH" show HEAD -q --format='%b' | grep -oE "^SHARD-MAINREF: \w+$" | cut -d ' ' -f 2)
+			git-main config --local "shards.$SHARD_PATH.commit" "$LAST_MAIN_COMMIT"
 		else
-			git init --bare "$SHARDSTORPATH"
-			git-main config --local "shards.$SHARDPATH.commit" ""
+			git init --bare "$SHARD_STORPATH"
+			git-main config --local "shards.$SHARD_PATH.commit" ""
 		fi
 
 		# Add shard to git config
-		git-main config --local "shards.$SHARDPATH.upstream" "$UPSTREAM"
-		git-main config --local "shards.$SHARDPATH.branch" "$BRANCH"
+		git-main config --local "shards.$SHARD_PATH.upstream" "$UPSTREAM"
+		git-main config --local "shards.$SHARD_PATH.branch" "$BRANCH"
 
-		echo "Added shard $SHARDPATH"
+		echo "Added shard $SHARD_PATH"
 
 		CURR_BRANCH="$(git-main rev-parse --abbrev-ref HEAD)"
 		if [[ "$CURR_BRANCH" != "$BRANCH" ]]; then
@@ -275,15 +297,26 @@ case "$SUBCOMMAND" in
 		;;
 
 	list)
+		case "${1:-}" in -h|--help|help)
+			echo "Usage: git shard list"
+			echo
+			echo "Print all registered shards, with their tracking branches and origin remote."
+			exit 0
+		esac
 		while read -r SHARD_PATH; do
-			UPSTREAM=$(git-main config --local --get "shards.$SHARD_PATH.upstream")
 			BRANCH=$(git-main config --local --get "shards.$SHARD_PATH.branch")
-			echo "$SHARD_PATH=>$UPSTREAM@$BRANCH"
+			UPSTREAM=$(git-main config --local --get "shards.$SHARD_PATH.upstream")
+			if [ -z "$UPSTREAM" ]; then
+				UPSTREAM="no remote"
+			else
+				UPSTREAM="$UPSTREAM@master"
+			fi
+			echo "$SHARD_PATH@$BRANCH => $UPSTREAM"
 		done < <(get-shards-path)
 		;;
 
 	remove)
-		case "${1:-help}" in -h|--help|help)
+		case "${1:-}" in -h|--help|help)
 			echo "Usage: git shard remove shard_path [more_shard_path...]"
 			echo
 			echo "Un-register one or more shards and remove its associated git repository from .git/shards/"
@@ -294,19 +327,19 @@ case "$SUBCOMMAND" in
 			exit 0
 		esac
 
-		for SHARDSPEC in "$@"; do
-			while read -r SHARDPATH; do
-				(( $(get-shard-exists "$SHARDPATH") == 1 )) || (echo "There is no shard for path $SHARDPATH" && exit 1)
+		for SHARD_SPEC in "$@"; do
+			while read -r SHARD_PATH; do
+				(( $(get-shard-exists "$SHARD_PATH") == 1 )) || (echo "There is no shard for path $SHARD_PATH" && exit 1)
 
-				rm -rf "$(get-shard-repo-path "$SHARDPATH")"
-				git config --local --remove-section "shards.$SHARDPATH"
+				rm -rf "$(get-shard-repo-path "$SHARD_PATH")"
+				git config --local --remove-section "shards.$SHARD_PATH"
 
-			done < <(expand-shard-spec "$SHARDSPEC")
+			done < <(expand-shard-spec "$SHARD_SPEC")
 		done
 		;;
 
 	files)
-		case "${1:-help}" in -h|--help|help)
+		case "${1:-}" in -h|--help|help)
 			echo "Usage: git shard files shard_path command [path_spec]"
 			echo
 			echo "Limits a shard to only track a list of files and directories."
@@ -318,31 +351,31 @@ case "$SUBCOMMAND" in
 			echo " path_spec   Path to a file or directory. Can contain wildcards for matching multiple files"
 			exit 0
 		esac
-		SHARDSPEC="$1"
+		SHARD_SPEC="$1"
 		COMMAND="$2"
 		VALUE="${3:-}"
 
-		(( $(get-shard-exists "$SHARDSPEC") == 1 )) || (echo "There is no shard for path $SHARDSPEC" && exit 1)
+		(( $(get-shard-exists "$SHARD_SPEC") == 1 )) || (echo "There is no shard for path $SHARD_SPEC" && exit 1)
 
-		while read -r SHARDPATH; do
+		while read -r SHARD_PATH; do
 			case "$COMMAND" in
 				get)
-					git-main config --local "shards.$SHARDPATH.files"
+					git-main config --local "shards.$SHARD_PATH.files"
 					;;
 				set)
-					git-main config --local "shards.$SHARDPATH.files" "$VALUE"
+					git-main config --local "shards.$SHARD_PATH.files" "$VALUE"
 					;;
 				add)
-					CURRVAL=$(git-main config --local "shards.$SHARDPATH.files" || true)
+					CURRVAL=$(git-main config --local "shards.$SHARD_PATH.files" || true)
 					if [ -n "$CURRVAL" ]; then
 						CURRVAL="$CURRVAL:"
 					fi
-					git-main config --local "shards.$SHARDPATH.files" "$CURRVAL$VALUE"
+					git-main config --local "shards.$SHARD_PATH.files" "$CURRVAL$VALUE"
 					;;
 				remove)
-					CURRVAL=$(git-main config --local "shards.$SHARDPATH.files" || true)
+					CURRVAL=$(git-main config --local "shards.$SHARD_PATH.files" || true)
 					CURRVAL=$(echo "$CURRVAL" | tr ":" "\n" | grep -vxF "$VALUE" | tr "\n" ":" | sed 's/:$//')
-					git-main config --local "shards.$SHARDPATH.files" "$CURRVAL"
+					git-main config --local "shards.$SHARD_PATH.files" "$CURRVAL"
 					;;
 				*)
 					echo "Unknown sub-command $COMMAND"
@@ -350,11 +383,11 @@ case "$SUBCOMMAND" in
 					;;
 			esac
 
-		done < <(expand-shard-spec "$SHARDSPEC")
+		done < <(expand-shard-spec "$SHARD_SPEC")
 		;;
 
 	push)
-		SHARDSPEC="*"
+		SHARD_SPEC=""
 		RANGE=""
 		COMMIT_ARGS=()
 
@@ -377,8 +410,8 @@ case "$SUBCOMMAND" in
 				--range) shift; RANGE="$1" ;;
 				--range=*) RANGE="${1#*=}" ;;
 				*)
-					if [ -z "$SHARDSPEC" ] && [[ "$1" != -* ]]; then
-						SHARDSPEC="$1"
+					if [ -z "$SHARD_SPEC" ] && [[ "$1" != -* ]]; then
+						SHARD_SPEC="$1"
 					else
 						COMMIT_ARGS+=("$1")
 					fi
@@ -387,6 +420,10 @@ case "$SUBCOMMAND" in
 
 			shift
 		done
+
+		if [ -z "$SHARD_SPEC" ]; then
+			SHARD_SPEC="*"
+		fi
 
 		RANGE=$(get-push-range "$RANGE")
 		if [ -z "$RANGE" ]; then
@@ -494,12 +531,12 @@ case "$SUBCOMMAND" in
 
 				# Update last inspected commit for shard
 				git-main config --local "shards.$SHARD_PATH.commit" "$HASH"
-			done < <(get-shards-path)
+			done < <(expand-shard-spec "$SHARD_SPEC")
 		done
 		;;
 
 	pull)
-		SHARDSPEC=""
+		SHARD_SPEC=""
 		AM_ARGS=()
 		RANGE=""
 		while (( $# > 0 )); do
@@ -521,8 +558,8 @@ case "$SUBCOMMAND" in
 				--range) shift; RANGE="$1" ;;
 				--range=*) RANGE="${1#*=}" ;;
 				*)
-					if [ -z "$SHARDSPEC" ] && [[ "$1" != -* ]]; then
-						SHARDSPEC="$1"
+					if [ -z "$SHARD_SPEC" ] && [[ "$1" != -* ]]; then
+						SHARD_SPEC="$1"
 					else
 						AM_ARGS+=("$1")
 					fi
@@ -531,13 +568,13 @@ case "$SUBCOMMAND" in
 			shift
 		done
 
-		if [ -n "$RANGE" ] && [[ "$SHARDSPEC" == "*" ]]; then
+		if [ -n "$RANGE" ] && [[ "$SHARD_SPEC" == "*" ]]; then
 			echo "Cannot use --range with multiple shards"
 			exit 1
 		fi
 
-		if [ -z "$SHARDSPEC" ]; then
-			SHARDSPEC="*"
+		if [ -z "$SHARD_SPEC" ]; then
+			SHARD_SPEC="*"
 		fi
 
 		MAINREPO_BRANCH=$(git-main rev-parse --abbrev-ref HEAD)
@@ -579,7 +616,7 @@ case "$SUBCOMMAND" in
 				done < <(echo "$COMMITS")
 			fi
 
-		done < <(expand-shard-spec "$SHARDSPEC")
+		done < <(expand-shard-spec "$SHARD_SPEC")
 		;;
 
 	exec)
@@ -597,28 +634,18 @@ case "$SUBCOMMAND" in
 		SHARD_PATH="$1"
 		shift
 
-		if [[ "$SHARD_PATH" == "*" ]]; then
-			# Exec for each shard
-			while read -r SHARD_PATH; do
-				echo "=> $SHARD_PATH"
-				if [ ! -d "$SHARD_PATH" ]; then
-					echo "  Shard path is not a directory / does not exist"
-					continue
-				fi
-				git-sub "$SHARD_PATH" "$@" || true
-			done < <(expand-shard-spec "$SHARD_PATH")
-		else
-			# Exec for a specific shard
-			if (( ! $(get-shard-exists "$SHARD_PATH") )); then
-				echo "No shard for $SHARD_PATH"
-				exit 1
-			fi
+		SHARDS=$(expand-shard-spec "$SHARD_PATH")
+		SHARDS_CNT=$(echo "$SHARDS" | wc -l)
+		while read -r SHARD_PATH; do
+			(( SHARDS_CNT == 1 )) || echo "=> $SHARD_PATH"
+
 			if [ ! -d "$SHARD_PATH" ]; then
 				echo "  Shard path is not a directory / does not exist"
-				exit 1
+				(( SHARDS_CNT > 1 )) || exit 1
+				continue
 			fi
 			git-sub "$SHARD_PATH" "$@"
-		fi
+		done < <(echo "$SHARDS")
 		;;
 
 	*)
