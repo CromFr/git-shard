@@ -297,12 +297,35 @@ case "$SUBCOMMAND" in
 		;;
 
 	list)
-		case "${1:-}" in -h|--help|help)
-			echo "Usage: git shard list"
-			echo
-			echo "Print all registered shards, with their tracking branches and origin remote."
-			exit 0
-		esac
+		SHARD_SPEC=""
+
+		while (( $# > 0 )); do
+			case "$1" in
+				-h|--help)
+					echo "Usage: git shard list [path_spec]"
+					echo
+					echo "Print all registered shards, with their tracking branches and origin remote."
+					echo
+					echo "Arguments:"
+					echo " shard_path  Optional path of the shard. Supports wildcard matching.. Default: '*'"
+					exit 0
+					;;
+				*)
+					if [ -z "$SHARD_SPEC" ]; then
+						SHARD_SPEC="$1"
+					else
+						echo "Too many shard_path arguments"
+						exit 1
+					fi
+					;;
+			esac
+
+			shift
+		done
+		if [ -z "$SHARD_SPEC" ]; then
+			SHARD_SPEC="*"
+		fi
+
 		while read -r SHARD_PATH; do
 			BRANCH=$(git-main config --local --get "shards.$SHARD_PATH.branch")
 			UPSTREAM=$(git-main config --local --get "shards.$SHARD_PATH.upstream")
@@ -312,7 +335,7 @@ case "$SUBCOMMAND" in
 				UPSTREAM="$UPSTREAM@master"
 			fi
 			echo "$SHARD_PATH@$BRANCH => $UPSTREAM"
-		done < <(get-shards-path)
+		done < <(expand-shard-spec "$SHARD_SPEC")
 		;;
 
 	remove)
@@ -322,7 +345,7 @@ case "$SUBCOMMAND" in
 			echo "Un-register one or more shards and remove its associated git repository from .git/shards/"
 			echo
 			echo "Arguments:"
-			echo " shard_path       Path of the shard to remove"
+			echo " shard_path       Path of the shard. Supports wildcard matching.. Default: '*'"
 			echo " more_shard_path  Same as shard_path"
 			exit 0
 		esac
@@ -346,7 +369,7 @@ case "$SUBCOMMAND" in
 			echo "Once at least one path is defined, the shard repository will ignore any other file."
 			echo
 			echo "Arguments:"
-			echo " shard_path  Path of the shard"
+			echo " shard_path  Optional path of the shard. Supports wildcard matching.. Default: '*'"
 			echo " command     either add, remove, get, set"
 			echo " path_spec   Path to a file or directory. Can contain wildcards for matching multiple files"
 			exit 0
@@ -399,7 +422,7 @@ case "$SUBCOMMAND" in
 					echo "Copy commits from the main repository to each shard"
 					echo
 					echo "Arguments:"
-					echo " shard_path  Path of the shard"
+					echo " shard_path  Optional path of the shard. Supports wildcard matching.. Default: '*'"
 					echo " options     See 'Options' below."
 					echo
 					echo "Options:"
@@ -547,7 +570,7 @@ case "$SUBCOMMAND" in
 					echo "Copy commits from the given shard into the main repository"
 					echo
 					echo "Arguments:"
-					echo " shard_path  Optional path of the shard. '*' for all shards. Default: '*'"
+					echo " shard_path  Optional path of the shard. Supports wildcard matching.. Default: '*'"
 					echo " options     See 'Options' below."
 					echo
 					echo "Options:"
@@ -626,7 +649,7 @@ case "$SUBCOMMAND" in
 			echo "Executes a git command inside a shard (do not repeat the 'git' command)"
 			echo
 			echo "Arguments:"
-			echo " shard_path  Path of the shard. '*' for all shards"
+			echo " shard_path  Path of the shard. Supports wildcard matching."
 			echo " git_args    Args passed to the git command to execute"
 			exit 0
 		esac

@@ -52,6 +52,10 @@ git shard init ProjectA
 git shard init ProjectB
 git shard init lib/public-lib
 
+#################### List shards
+(( $(git shard list | wc -l) == 3))
+(( $(git shard list "Project*" | wc -l) == 2))
+
 #################### Push commits to shards
 git shard push --no-gpg-sign
 (( $(git shard exec ProjectA show --pretty="" --name-only HEAD | wc -l) == 1))
