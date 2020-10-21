@@ -60,8 +60,8 @@ function git-sub(){
 # Returns all shards path, one by line
 function get-shards-path(){
 	while read -r SHARD; do
-		echo "$SHARD" | sed -E 's|^shards\.(.*)\.upstream=.*|\1|'
-	done < <(git-main config --local -l | grep -E '^shards\..*\.upstream' || true)
+		echo "$SHARD" | sed -E 's|^shards\.(.*)\.branch=.*|\1|'
+	done < <(git-main config --local -l | grep -E '^shards\..*\.branch' || true)
 }
 
 
@@ -85,7 +85,7 @@ function expand-shard-spec(){
 # Returns 1 if the shard has been registered
 function get-shard-exists(){
 	local shard_path="$1"
-	if git-main config --local "shards.$shard_path.upstream" >/dev/null; then
+	if git-main config --local "shards.$shard_path.branch" >/dev/null; then
 		echo 1
 	else
 		echo 0
@@ -217,7 +217,7 @@ shift
 case "$SUBCOMMAND" in
 	init)
 		BRANCH=$(git-main rev-parse --abbrev-ref HEAD)
-		UPSTREAM=""
+		CLONE_URI=""
 		SHARD_PATH=""
 
 		while (( $# > 0 )); do
@@ -232,12 +232,12 @@ case "$SUBCOMMAND" in
 					echo " shard_path       Path of the directory to track for creating the shard from"
 					echo
 					echo "Options:"
-					echo " --upstream URI   Git clone URI if the shard repository is already versioned somewhere"
+					echo " --clone URI      Git clone URI if the shard repository is already versioned somewhere"
 					echo " --branch BRANCH  Branch of the main repository that will be bound to the master branch of the shard. Defaults to the current branch of the main repository."
 					exit 0
 					;;
-				--origin) shift; UPSTREAM="$1" ;;
-				--origin=*) UPSTREAM="${1#*=}" ;;
+				--clone) shift; CLONE_URI="$1" ;;
+				--clone=*) CLONE_URI="${1#*=}" ;;
 				--branch) shift; BRANCH="$1" ;;
 				--branch=*) BRANCH="${1#*=}" ;;
 				*)
@@ -262,8 +262,8 @@ case "$SUBCOMMAND" in
 
 		# Clone/create shard repository
 		mkdir -p "$SHARD_STORPATH"
-		if [[ "$UPSTREAM" != "" ]]; then
-			git clone --bare "$UPSTREAM" "$SHARD_STORPATH"
+		if [[ "$CLONE_URI" != "" ]]; then
+			git clone --bare "$CLONE_URI" "$SHARD_STORPATH"
 
 			LAST_MAIN_COMMIT=$(git-sub "$SHARD_PATH" show HEAD -q --format='%b' | grep -oE "^SHARD-MAINREF: \w+$" | cut -d ' ' -f 2)
 			git-main config --local "shards.$SHARD_PATH.commit" "$LAST_MAIN_COMMIT"
@@ -273,7 +273,6 @@ case "$SUBCOMMAND" in
 		fi
 
 		# Add shard to git config
-		git-main config --local "shards.$SHARD_PATH.upstream" "$UPSTREAM"
 		git-main config --local "shards.$SHARD_PATH.branch" "$BRANCH"
 
 		echo "Added shard $SHARD_PATH"
@@ -317,7 +316,7 @@ case "$SUBCOMMAND" in
 
 		while read -r SHARD_PATH; do
 			BRANCH=$(git-main config --local --get "shards.$SHARD_PATH.branch")
-			UPSTREAM=$(git-main config --local --get "shards.$SHARD_PATH.upstream")
+			UPSTREAM=$(git-sub "$SHARD_PATH" config --local remote.origin.url || true)
 			if [ -z "$UPSTREAM" ]; then
 				UPSTREAM="no remote"
 			else
