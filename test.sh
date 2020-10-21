@@ -152,7 +152,8 @@ git shard pull ProjectA --no-gpg-sign
 (( $(git log --format=%h | wc -l) == 7 ))
 
 # Should be noop
-git shard pull ProjectA --no-gpg-sign
+git shard pull --no-gpg-sign
+git shard pull '*' --no-gpg-sign
 (( $(git log --format=%h | wc -l) == 7 ))
 
 

@@ -1,8 +1,11 @@
 #!/bin/bash
 # shellcheck disable=SC2155
 
+set -euo pipefail
+# set -x
 
-# Stack trace
+
+# Bash errors handler
 function errexit() {
   local err=$?
   set +o xtrace
@@ -24,9 +27,6 @@ trap 'errexit' ERR
 set -o errtrace
 
 
-
-set -euo pipefail
-# set -x
 
 
 MAINREPO=$(git rev-parse --show-toplevel)
@@ -127,7 +127,7 @@ function get-shard-last-shardref(){
 	get-latest-shard-commit "$shard_path" "$last_commited_in_shard" "$last_commited_in_main"
 }
 
-function expand-shard-match(){
+function expand-shard-spec(){
 	if [[ "$1" == "*" ]]; then
 		get-shards-path
 	else
@@ -305,7 +305,7 @@ case "$SUBCOMMAND" in
 				rm -rf "$(get-shard-repo-path "$SHARDPATH")"
 				git config --local --remove-section "shards.$SHARDPATH"
 
-			done < <(expand-shard-match "$SHARDSPEC")
+			done < <(expand-shard-spec "$SHARDSPEC")
 		done
 		;;
 
@@ -354,7 +354,7 @@ case "$SUBCOMMAND" in
 					;;
 			esac
 
-		done < <(expand-shard-match "$SHARDSPEC")
+		done < <(expand-shard-spec "$SHARDSPEC")
 		;;
 
 	push)
@@ -378,7 +378,7 @@ case "$SUBCOMMAND" in
 					RANGE="$1"
 					;;
 				*)
-					if [ -z "$SHARDSPEC" ] && [[ "$SHARDSPEC" != -* ]]; then
+					if [ -z "$SHARDSPEC" ] && [[ "$1" != -* ]]; then
 						SHARDSPEC="$1"
 					else
 						COMMIT_ARGS+=("$1")
@@ -503,12 +503,12 @@ case "$SUBCOMMAND" in
 		while (( $# > 0 )); do
 			case "$1" in
 				-h|--help)
-					echo "Usage: git shard pull shard_path [options]"
+					echo "Usage: git shard pull [shard_path] [options]"
 					echo
 					echo "Copy commits from the given shard into the main repository"
 					echo
 					echo "Arguments:"
-					echo " shard_path Path of the shard. '*' for all shards"
+					echo " shard_path Optional path of the shard. '*' for all shards. Default: '*'"
 					echo " options    Forwarded to the 'git am' command"
 					echo
 					echo "Options:"
@@ -521,7 +521,7 @@ case "$SUBCOMMAND" in
 					RANGE="$1"
 					;;
 				*)
-					if [ -z "$SHARDSPEC" ]; then
+					if [ -z "$SHARDSPEC" ] && [[ "$1" != -* ]]; then
 						SHARDSPEC="$1"
 					else
 						AM_ARGS+=("$1")
@@ -531,9 +531,13 @@ case "$SUBCOMMAND" in
 			shift
 		done
 
-		if [[ -n "$RANGE" && "$SHARDSPEC" == "*" ]]; then
-			echo "Cannot use --range with '*' shards."
+		if [ -n "$RANGE" ] && [[ "$SHARDSPEC" == "*" ]]; then
+			echo "Cannot use --range with multiple shards"
 			exit 1
+		fi
+
+		if [ -z "$SHARDSPEC" ]; then
+			SHARDSPEC="*"
 		fi
 
 		# Loop over each shard spec
@@ -547,8 +551,6 @@ case "$SUBCOMMAND" in
 				SHARD_COMMIT="$RANGE"
 			fi
 
-			echo "$SHARD_PATH: $SHARD_COMMIT"
-
 			while read -r COMMITHASH; do
 				# Reproduce commit in main repo using patch files
 				COMMIT_INFO=$(git-sub "$SHARD_PATH" show -s --format='"%s" (%h)' "$COMMITHASH")
@@ -561,7 +563,7 @@ case "$SUBCOMMAND" in
 					| git-main am --directory="$SHARD_PATH" "${AM_ARGS[@]}"
 
 			done < <(git-sub "$SHARD_PATH" log --format="%H" "$SHARD_COMMIT" | tac)
-		done < <(expand-shard-match "$SHARDSPEC")
+		done < <(expand-shard-spec "$SHARDSPEC")
 		;;
 
 	exec)
@@ -588,7 +590,7 @@ case "$SUBCOMMAND" in
 					continue
 				fi
 				git-sub "$SHARD_PATH" "$@" || true
-			done < <(git-shards-path)
+			done < <(expand-shard-spec "$SHARD_PATH")
 		else
 			# Exec for a specific shard
 			if (( ! $(get-shard-exists "$SHARD_PATH") )); then
