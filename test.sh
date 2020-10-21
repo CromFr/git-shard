@@ -9,6 +9,7 @@ set -o errtrace
 
 set -evuo pipefail
 export PATH="$PWD:$PATH"
+export GIT_SHARD_DEBUG=1
 
 # Clean previous test dir
 rm -rf "$(dirname "$0")/test/"
