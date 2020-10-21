@@ -192,11 +192,7 @@ function get-push-range(){
 
 	else
 		# use provided range
-		if [[ "$range" != *..* ]]; then
-			echo "$range^-"
-		else
-			echo "$range"
-		fi
+		echo "$range"
 	fi
 }
 

@@ -17,9 +17,11 @@ cd "$(dirname "$0")/test"
 
 git shard -h >/dev/null
 git shard init -h >/dev/null
+git shard list -h >/dev/null
 git shard remove -h >/dev/null
 git shard files -h >/dev/null
 git shard push -h >/dev/null
+git shard pull -h >/dev/null
 git shard exec -h >/dev/null
 
 git init
@@ -117,6 +119,7 @@ git shard files RestrictedProject add "MATCH*"
 git shard files RestrictedProject add "yolo"
 git shard files RestrictedProject remove "yolo"
 git shard files RestrictedProject add "SPACED NAME*"
+[[ "$(git shard files RestrictedProject get)" == "INC.md:README.md:MATCH*:SPACED NAME*" ]]
 
 #################### Commit everything in main repo
 git add .
