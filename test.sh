@@ -64,8 +64,11 @@ git shard init lib/public-lib
 
 #################### Push commits to shards
 git shard push --no-gpg-sign
+(( $(git shard exec ProjectA log --oneline | wc -l) == 1))
 (( $(git shard exec ProjectA show --pretty="" --name-only HEAD | wc -l) == 1))
+(( $(git shard exec ProjectB log --oneline | wc -l) == 1))
 (( $(git shard exec ProjectB show --pretty="" --name-only HEAD | wc -l) == 1))
+(( $(git shard exec lib/public-lib log --oneline | wc -l) == 1))
 (( $(git shard exec lib/public-lib show --pretty="" --name-only HEAD | wc -l) == 2))
 
 #################### Add one more commit
@@ -76,11 +79,15 @@ git commit --no-gpg-sign -m "lib/public-lib: Appended readme"
 #################### Push commits to shards
 git shard push --no-gpg-sign
 (( $(git shard exec lib/public-lib show --pretty="" --name-only HEAD | wc -l) == 1))
+(( $(git shard exec ProjectA log --oneline | wc -l) == 1))
+(( $(git shard exec ProjectB log --oneline | wc -l) == 1))
+(( $(git shard exec lib/public-lib log --oneline | wc -l) == 2))
 
 #################### Should be noop
 git config --local "shards.lib/public-lib.commit" ""
 git shard push --no-gpg-sign
 (( $(git shard exec lib/public-lib show --pretty="" --name-only HEAD | wc -l) == 1))
+(( $(git shard push --no-gpg-sign | wc -l) == 1)) # Just a "no commit to push" message
 
 
 
@@ -148,6 +155,7 @@ git shard push . --no-gpg-sign
 git shard remove .
 
 #################### check that the removal didn't do anything nasty
+(( $(git shard list | wc -l) == 4))
 (( $(git shard exec RestrictedProject show --pretty="" --name-only HEAD | wc -l) == 4))
 [ ! -d ".git/shards/__root" ]
 
@@ -167,20 +175,21 @@ echo "This shard tracks a specific branch of the main repo" > BranchRepo/README.
 git shard init --branch branch-repo BranchRepo/
 
 #################### Should be noop
-git shard push --no-gpg-sign
+(( $(git shard push --no-gpg-sign | wc -l) == 1)) # Just a "no commit to push" message
 (git shard exec BranchRepo show HEAD >&/dev/null && exit 1) || true # No commits
 
 #################### Checkout to branch
 git checkout branch-repo
-git shard push --no-gpg-sign
+git shard push --no-gpg-sign # Should do nothing, as BranchRepo/ is untracked
 (git shard exec BranchRepo show HEAD >&/dev/null && exit 1) || true # No commits
 
-#################### Commit
+#################### Commit in main repo
 git add .
 git commit --no-gpg-sign -m "Added branched shard"
 
-#################### Should be noop
-git shard push --no-gpg-sign
+# #################### Should be noop
+git checkout master
+(( $(git shard push --no-gpg-sign | wc -l) == 1 )) # Just a "no commit to push" message
 (git shard exec BranchRepo show HEAD >&/dev/null && exit 1) || true # No commits
 
 #################### Push commit to branch shard
@@ -212,18 +221,22 @@ git shard exec ProjectA commit --no-gpg-sign -m "One more line in sample.txt" --
 rm ProjectA/sample.txt
 
 #################### Try to copy impossible commit (applying HEAD requires HEAD^)
-(( $(git log --format=%h | wc -l) == 5 ))
+(( $(git log --oneline | wc -l) == 5 ))
 (git shard pull ProjectA --range "HEAD^-" --no-gpg-sign >& /dev/null && exit 1) || true
 git am --abort
 
 #################### Copy last commits in order
 git shard pull ProjectA --no-gpg-sign
-(( $(git log --format=%h | wc -l) == 7 ))
+(( $(git log --oneline | wc -l) == 7 ))
+(( $(git log --format=%b | grep -c "SHARD-COMMIT: ProjectA:") == 2 ))
 
 #################### Should be noop
 git shard pull --no-gpg-sign
 git shard pull '*' --no-gpg-sign
-(( $(git log --format=%h | wc -l) == 7 ))
+(( $(git log --oneline | wc -l) == 7 ))
+
+#################### Should be noop
+git shard push --no-gpg-sign
 
 
 
