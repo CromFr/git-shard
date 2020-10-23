@@ -132,6 +132,7 @@ git shard files RestrictedProject add "SPACED NAME*"
 #################### Commit everything in main repo
 git add .
 git commit --no-gpg-sign -m "RestrictedProject: Added more files for pattern matching test"
+
 #################### Push to shards
 git shard push --no-gpg-sign
 
@@ -224,6 +225,7 @@ rm ProjectA/sample.txt
 (( $(git log --oneline | wc -l) == 5 ))
 (git shard pull ProjectA --range "HEAD^-" --no-gpg-sign >& /dev/null && exit 1) || true
 git am --abort
+(( $(git log --oneline | wc -l) == 5 ))
 
 #################### Copy last commits in order
 git shard pull ProjectA --no-gpg-sign
@@ -232,11 +234,25 @@ git shard pull ProjectA --no-gpg-sign
 
 #################### Should be noop
 git shard pull --no-gpg-sign
-git shard pull '*' --no-gpg-sign
 (( $(git log --oneline | wc -l) == 7 ))
 
 #################### Should be noop
 git shard push --no-gpg-sign
+(( $(git shard exec ProjectA log --oneline | wc -l) == 3 ))
+
+
+
+################################################################################
+# Misc
+################################################################################
+
+# Copy branch-repo initial commit
+git cherry-pick "$(git rev-parse branch-repo)" --no-gpg-sign
+(( $(git log --oneline | wc -l) == 8 ))
+
+# try to push (should not copy anything)
+git shard push --no-gpg-sign
+(( $(git log --oneline | wc -l) == 8 ))
 
 
 
