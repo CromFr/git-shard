@@ -172,6 +172,11 @@ function get-push-range(){
 	# Find earliest commit
 	local oldest=""
 	while read -r SHARD_PATH; do
+		local shard_curr_branch=
+		shard_curr_branch=$(git-sub "$SHARD_PATH" rev-parse --abbrev-ref HEAD 2>/dev/null || true)
+		if [[ "$shard_curr_branch" != "HEAD" && "$shard_curr_branch" != "master" ]]; then
+			continue
+		fi
 		local tracking_branch=
 		tracking_branch=$(git-main config --local "shards.$SHARD_PATH.branch")
 		if [[ "$tracking_branch" != "$current_branch" ]]; then
@@ -461,6 +466,13 @@ case "$SUBCOMMAND" in
 			while read -r SHARD_PATH; do
 				echo "=> $SHARD_PATH"
 
+				# Check current shard branch
+				SHARD_CURR_BRANCH=$(git-sub "$SHARD_PATH" rev-parse --abbrev-ref HEAD 2>/dev/null || true)
+				echo "SHARD_CURR_BRANCH=$SHARD_CURR_BRANCH" >&2
+				if [[ "$SHARD_CURR_BRANCH" != "HEAD" && "$SHARD_CURR_BRANCH" != "master" ]]; then
+					echo "  Non-master shard branch: shard is checked out on branch $SHARD_CURR_BRANCH."
+					continue
+				fi
 				# Check branch tracking
 				SHARD_TRACKING_BRANCH=$(git-main config --local "shards.$SHARD_PATH.branch")
 				if [[ "$SHARD_TRACKING_BRANCH" != "$MAINREPO_BRANCH" ]]; then
@@ -587,6 +599,12 @@ case "$SUBCOMMAND" in
 		while read -r SHARD_PATH; do
 			echo "=> $SHARD_PATH"
 
+			# Check current shard branch
+			SHARD_CURR_BRANCH=$(git-sub "$SHARD_PATH" rev-parse --abbrev-ref HEAD 2>/dev/null || true)
+			if [[ "$SHARD_CURR_BRANCH" != "HEAD" && "$SHARD_CURR_BRANCH" != "master" ]]; then
+				echo "  Non-master shard branch: shard is checked out on branch $SHARD_CURR_BRANCH."
+				continue
+			fi
 			# Check branch tracking
 			SHARD_TRACKING_BRANCH=$(git-main config --local "shards.$SHARD_PATH.branch")
 			if [[ "$SHARD_TRACKING_BRANCH" != "$MAINREPO_BRANCH" ]]; then

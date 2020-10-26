@@ -240,6 +240,25 @@ git shard pull --no-gpg-sign
 git shard push --no-gpg-sign
 (( $(git shard exec ProjectA log --oneline | wc -l) == 3 ))
 
+#################### Check out shard branch and try doing actions on it
+git shard exec ProjectA checkout -b pr/1234
+echo "Hello world" > ProjectA/sample.txt
+git shard exec ProjectA add sample.txt
+git shard exec ProjectA commit --no-gpg-sign -m "This commit shouldn't be pulled"
+
+git shard pull --no-gpg-sign | grep "Non-master shard branch"
+(( $(git log --oneline | wc -l) == 7 ))
+(( $(git shard exec ProjectA log --oneline | wc -l) == 4 ))
+
+echo "Yolo" > ProjectA/sample.txt
+git add ProjectA/sample.txt
+git commit --no-gpg-sign -m "This commit shouldn't be pushed"
+
+git shard push --no-gpg-sign | grep "Non-master shard branch"
+(( $(git log --oneline | wc -l) == 8 ))
+(( $(git shard exec ProjectA log --oneline | wc -l) == 4 ))
+
+git reset --hard HEAD^
 
 
 ################################################################################
