@@ -449,7 +449,7 @@ case "$SUBCOMMAND" in
 
 		# Stash changes if any
 		if [ -n "$(git-main status --porcelain)" ]; then
-			git-main stash push -u -m "Pre git-shard commit cleaning"
+			git-main stash push -u -m "Pre git-shard push cleaning"
 			trap "git-main stash pop -q" EXIT
 		fi
 
@@ -594,6 +594,12 @@ case "$SUBCOMMAND" in
 		fi
 
 		MAINREPO_BRANCH=$(git-main rev-parse --abbrev-ref HEAD)
+
+		# Stash changes if any
+		if [ -n "$(git-main status --porcelain)" ]; then
+			git-main stash push -u -m "Pre git-shard pull cleaning"
+			trap "git-main stash pop -q" EXIT
+		fi
 
 		# Loop over each shard spec
 		while read -r SHARD_PATH; do

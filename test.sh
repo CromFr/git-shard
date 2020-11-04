@@ -261,17 +261,42 @@ git shard push --no-gpg-sign | grep "Non-master shard branch"
 git reset --hard HEAD^
 
 
+
+################################################################################
+# Merge commits (similar to a pull request)
+################################################################################
+
+#################### Add two commits in ProjectB branch new-feature
+git shard exec ProjectB checkout -b new-feature
+echo "WIP" > ProjectB/new-feature.txt
+git shard exec ProjectB add .
+git shard exec ProjectB commit --no-gpg-sign -m "Wip adding new feature"
+echo "This is a new feature !" > ProjectB/new-feature.txt
+git shard exec ProjectB add .
+git shard exec ProjectB commit --no-gpg-sign -m "Finished new feature"
+# Merge
+git shard exec ProjectB checkout master
+git shard exec ProjectB merge new-feature
+
+#################### Pull merge commit
+(( $(git log --oneline | wc -l) == 7 ))
+git clean -f
+git shard pull --no-gpg-sign
+(( $(git log --oneline | wc -l) == 9 ))
+
+
+
 ################################################################################
 # Misc
 ################################################################################
 
 # Copy branch-repo initial commit
 git cherry-pick "$(git rev-parse branch-repo)" --no-gpg-sign
-(( $(git log --oneline | wc -l) == 8 ))
+(( $(git log --oneline | wc -l) == 10 ))
 
 # try to push (should not copy anything)
 git shard push --no-gpg-sign
-(( $(git log --oneline | wc -l) == 8 ))
+(( $(git log --oneline | wc -l) == 10 ))
 
 
 
